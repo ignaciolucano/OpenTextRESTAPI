@@ -1,0 +1,6 @@
+@OpenTextIntegrationAPI_HostAddress = http://localhost:5125
+
+GET {{OpenTextIntegrationAPI_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
