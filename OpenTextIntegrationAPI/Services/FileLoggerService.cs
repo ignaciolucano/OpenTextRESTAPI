@@ -24,10 +24,10 @@ public class FileLoggerOptions
     public string LogLevel { get; set; } = "INFO";
     public int MaxFileSizeMB { get; set; } = 5;
     public string FileNamePattern { get; set; } = "application_{date}.log"; // {date} will be replaced by yyyy-MM-dd
-    public bool EnableRawLogs { get; set; } = false;
+    public bool EnableRawInboundLogs { get; set; } = false;
+    public bool EnableRawApiLogs { get; set; } = false;
     public string RawApiSubfolder { get; set; } = "Raw\\OpenText";
     public string RawInboundSubfolder { get; set; } = "Raw\\Inbound";
-
 }
 
 /// <summary>
@@ -40,7 +40,6 @@ public interface ILogService
     void LogException(Exception ex, LogLevel level = LogLevel.ERROR);
     string LogRawInbound(string namePrefix, string content);
     string LogRawApi(string namePrefix, string content);
-
 }
 
 /// <summary>
@@ -113,22 +112,25 @@ public class FileLoggerService : ILogService
     }
 
     /// <summary>
-    /// Logs raw data (e.g., full request/response) to a separate file if enabled.
+    /// Logs raw inbound data (requests to your API) if enabled.
     /// </summary>
     public string LogRawInbound(string namePrefix, string content)
     {
+        if (!_options.EnableRawInboundLogs) return string.Empty;
         return LogRawToSubfolder(namePrefix, content, _options.RawInboundSubfolder);
     }
 
+    /// <summary>
+    /// Logs raw API data (calls to OpenText API) if enabled.
+    /// </summary>
     public string LogRawApi(string namePrefix, string content)
     {
+        if (!_options.EnableRawApiLogs) return string.Empty;
         return LogRawToSubfolder(namePrefix, content, _options.RawApiSubfolder);
     }
 
     private string LogRawToSubfolder(string namePrefix, string content, string subfolder)
     {
-        if (!_options.EnableRawLogs) return string.Empty;
-
         try
         {
             string uniqueId = $"{DateTime.Now:yyyyMMdd_HHmmssfff}_{Guid.NewGuid():N}";
@@ -147,8 +149,6 @@ public class FileLoggerService : ILogService
             return string.Empty;
         }
     }
-
-
 
     /// <summary>
     /// Formats a log line with timestamp and level.

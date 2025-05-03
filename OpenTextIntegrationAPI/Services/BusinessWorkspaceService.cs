@@ -15,88 +15,167 @@ using OpenTextIntegrationAPI.Models;
 
 namespace OpenTextIntegrationAPI.Services
 {
+    /// <summary>
+    /// Service for managing Business Workspaces in OpenText Content Server.
+    /// Handles creation, update, and relationship management for workspaces.
+    /// </summary>
     public class BusinessWorkspaceService
     {
         private readonly HttpClient _httpClient;
-        //private readonly IConfiguration _configuration;
         private readonly OpenTextSettings _settings;
         private readonly string _ticket;
         private readonly MasterData _masterData;
         private readonly CSUtilities _csUtilities;
         private readonly Node _csNode;
+        private readonly ILogService _logger;
 
-        // Constructor: se pasa el token de autenticación (ticket)
-        public BusinessWorkspaceService(HttpClient httpClient,  string ticket, MasterData masterData, OpenTextSettings settings, CSUtilities csUtilities, Node csNode) //IConfiguration configuration,
+        /// <summary>
+        /// Initializes a new instance of the BusinessWorkspaceService with required dependencies.
+        /// </summary>
+        /// <param name="httpClient">HTTP client for API calls</param>
+        /// <param name="ticket">Authentication ticket (OTCSTICKET)</param>
+        /// <param name="masterData">Service for master data operations</param>
+        /// <param name="settings">Configuration settings for OpenText API</param>
+        /// <param name="csUtilities">Utility methods for Content Server operations</param>
+        /// <param name="csNode">Service for node operations in Content Server</param>
+        /// <param name="logger">Service for logging operations and errors</param>
+        public BusinessWorkspaceService(HttpClient httpClient, string ticket, MasterData masterData, OpenTextSettings settings, CSUtilities csUtilities, Node csNode, ILogService logger)
         {
             _httpClient = httpClient;
-            //_configuration = configuration;
             _ticket = ticket;
             _masterData = masterData;
             _settings = settings;
             _csUtilities = csUtilities;
             _csNode = csNode;
+            _logger = logger;
+
+            // Log service initialization
+            _logger.Log("BusinessWorkspaceService initialized", LogLevel.DEBUG);
         }
 
-        // Método para agregar el header OTCSTICKET
+        /// <summary>
+        /// Adds the OTCSTICKET authentication header to HTTP requests.
+        /// </summary>
+        /// <param name="req">The HTTP request message to modify</param>
         private void AddTicketHeader(HttpRequestMessage req)
         {
+            _logger.Log("Adding authentication ticket to request header", LogLevel.TRACE);
             req.Headers.Remove("OTCSTICKET");
             req.Headers.Add("OTCSTICKET", _ticket);
         }
-        // Método para crear un nuevo Business Workspace usando PUT /api/v2/businessworkspaces
+
+        /// <summary>
+        /// Creates a new Business Workspace using the OpenText API.
+        /// </summary>
+        /// <param name="boType">Business Object Type</param>
+        /// <param name="boId">Business Object ID</param>
+        /// <returns>Response containing the created workspace details</returns>
+        /// <exception cref="Exception">Thrown when workspace creation fails</exception>
         public async Task<BusinessWorkspaceResponse?> CreateBusinessWorkspaceAsync(string boType, string boId)
         {
+            _logger.Log($"Starting CreateBusinessWorkspaceAsync for BO: {boType}/{boId}", LogLevel.INFO);
+
             var baseUrl = _settings.BaseUrl;
-            var extSystemId = _settings.ExtSystemId; 
+            var extSystemId = _settings.ExtSystemId;
             var url = $"{baseUrl}/api/v2/businessworkspaces/";
 
+            _logger.Log($"Workspace creation URL: {url}", LogLevel.DEBUG);
+
+            // Prepare workspace creation body
             var workspaceCreationBody = new
             {
                 parent_id = "1223697",
                 template_id = 1226272,
-                //bo_type_id = "1845893,
                 wksp_type_id = 1782920,
                 name = "Prueba BW",
                 bo_type = boType,
                 bo_id = boId,
                 ext_system_id = extSystemId
             };
+
             string jsonBody = JsonSerializer.Serialize(workspaceCreationBody);
+            _logger.Log("Created workspace creation JSON body", LogLevel.DEBUG);
+
+            // Log request details
+            _logger.LogRawApi("api_request_create_workspace", jsonBody);
+
             var content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 { "body", jsonBody }
             });
+
             var request = new HttpRequestMessage(HttpMethod.Post, url)
             {
                 Content = content
             };
-            AddTicketHeader(request);
-            Debug.WriteLine($"[DEBUG] Creating Business Workspace via: {url} with body: {jsonBody}");
 
-            var response = await _httpClient.SendAsync(request);
-            if (!response.IsSuccessStatusCode)
-            {
-                var err = await response.Content.ReadAsStringAsync();
-                Debug.WriteLine($"[ERROR] Business Workspace creation failed: {err}");
-                throw new Exception($"Business Workspace creation failed with status {response.StatusCode}: {err}");
-            }
-            var responseJson = await response.Content.ReadAsStringAsync();
-            Debug.WriteLine($"[DEBUG] Business Workspace creation response: {responseJson.Substring(0, Math.Min(300, responseJson.Length))}");
+            AddTicketHeader(request);
+            _logger.Log($"Creating Business Workspace via: {url}", LogLevel.DEBUG);
+
+            // Send request
+            HttpResponseMessage response;
             try
             {
-                var wsResponse = JsonSerializer.Deserialize<BusinessWorkspaceResponse>(responseJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                _logger.Log("Sending workspace creation request", LogLevel.DEBUG);
+                response = await _httpClient.SendAsync(request);
+
+                // Check for successful response
+                if (!response.IsSuccessStatusCode)
+                {
+                    var err = await response.Content.ReadAsStringAsync();
+                    _logger.Log($"Business Workspace creation failed: {response.StatusCode} - {err}", LogLevel.ERROR);
+
+                    // Log error response
+                    _logger.LogRawApi("api_response_create_workspace_error", err);
+
+                    throw new Exception($"Business Workspace creation failed with status {response.StatusCode}: {err}");
+                }
+            }
+            catch (Exception ex) when (!(ex is Exception))
+            {
+                _logger.LogException(ex, LogLevel.ERROR);
+                _logger.Log($"Error sending workspace creation request: {ex.Message}", LogLevel.ERROR);
+                throw;
+            }
+
+            // Process response
+            var responseJson = await response.Content.ReadAsStringAsync();
+
+            // Log response (limited to reasonable size)
+            _logger.LogRawApi("api_response_create_workspace",
+                responseJson.Length > 1000 ? responseJson.Substring(0, 1000) + "..." : responseJson);
+
+            try
+            {
+                _logger.Log("Deserializing workspace creation response", LogLevel.DEBUG);
+                var wsResponse = JsonSerializer.Deserialize<BusinessWorkspaceResponse>(
+                    responseJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                _logger.Log($"Successfully created Business Workspace for {boType}/{boId}", LogLevel.INFO);
                 return wsResponse;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[ERROR] Failed to deserialize BusinessWorkspaceResponse during creation: {ex.Message}");
+                _logger.LogException(ex, LogLevel.ERROR);
+                _logger.Log($"Failed to deserialize BusinessWorkspaceResponse: {ex.Message}", LogLevel.ERROR);
                 throw;
             }
         }
+
+        /// <summary>
+        /// Gets a unique name ID from OpenText Content Server.
+        /// </summary>
+        /// <param name="ticket">Authentication ticket</param>
+        /// <param name="uName">Unique name to retrieve</param>
+        /// <returns>Unique name ID as string</returns>
+        /// <exception cref="Exception">Thrown when unique name retrieval fails</exception>
         private async Task<string> GetUniqueName(string ticket, string uName)
         {
+            _logger.Log($"Getting unique name ID for: {uName}", LogLevel.DEBUG);
+
             var baseUrl = _settings.BaseUrl;
-            
+
             void AddTicketHeader(HttpRequestMessage req)
             {
                 req.Headers.Remove("OTCSTICKET");
@@ -107,22 +186,67 @@ namespace OpenTextIntegrationAPI.Services
             var wsEDUrl = $"{baseUrl}/api/v2/uniquenames?where_names={uName}";
             var wsEDRequest = new HttpRequestMessage(HttpMethod.Get, wsEDUrl);
             AddTicketHeader(wsEDRequest);
-            Debug.WriteLine($"[DEBUG] Searching for Unique Name: {wsEDUrl}");
-            var wsEDResponse = await _httpClient.SendAsync(wsEDRequest);
-            if (!wsEDResponse.IsSuccessStatusCode)
+
+            _logger.Log($"Unique name request URL: {wsEDUrl}", LogLevel.DEBUG);
+
+            // Log request details
+            _logger.LogRawApi("api_request_get_unique_name",
+                JsonSerializer.Serialize(new { unique_name = uName, url = wsEDUrl }));
+
+            HttpResponseMessage wsEDResponse;
+            try
             {
-                var err = await wsEDResponse.Content.ReadAsStringAsync();
-                Debug.WriteLine($"[ERROR] Business Workspace search failed search of Unique Names: {err}");
-                throw new Exception($"Business Workspace search failed with status {wsEDResponse.StatusCode}: {err}");
+                _logger.Log("Sending unique name request", LogLevel.TRACE);
+                wsEDResponse = await _httpClient.SendAsync(wsEDRequest);
+
+                // Check for successful response
+                if (!wsEDResponse.IsSuccessStatusCode)
+                {
+                    var err = await wsEDResponse.Content.ReadAsStringAsync();
+                    _logger.Log($"Unique name search failed: {wsEDResponse.StatusCode} - {err}", LogLevel.ERROR);
+
+                    // Log error response
+                    _logger.LogRawApi("api_response_get_unique_name_error", err);
+
+                    throw new Exception($"Business Workspace search failed with status {wsEDResponse.StatusCode}: {err}");
+                }
             }
+            catch (Exception ex) when (!(ex is Exception))
+            {
+                _logger.LogException(ex, LogLevel.ERROR);
+                _logger.Log($"Error retrieving unique name: {ex.Message}", LogLevel.ERROR);
+                throw;
+            }
+
+            // Process response
             var wsEDJson = await wsEDResponse.Content.ReadAsStringAsync();
+
+            // Log response
+            _logger.LogRawApi("api_response_get_unique_name", wsEDJson);
+
             string? UniqueNameId = ExtractUniqueNameId(wsEDJson);
 
-            return UniqueNameId;
+            if (string.IsNullOrEmpty(UniqueNameId))
+            {
+                _logger.Log($"Could not extract unique name ID for {uName}", LogLevel.WARNING);
+            }
+            else
+            {
+                _logger.Log($"Extracted unique name ID for {uName}: {UniqueNameId}", LogLevel.DEBUG);
+            }
 
+            return UniqueNameId;
         }
+
+        /// <summary>
+        /// Extracts the unique name ID from a JSON response.
+        /// </summary>
+        /// <param name="json">JSON response containing unique name information</param>
+        /// <returns>Unique name ID as string or null if not found</returns>
         private string? ExtractUniqueNameId(string json)
         {
+            _logger.Log("Extracting unique name ID from response", LogLevel.TRACE);
+
             try
             {
                 using (JsonDocument doc = JsonDocument.Parse(json))
@@ -138,31 +262,55 @@ namespace OpenTextIntegrationAPI.Services
                         // Then into "properties"
                         if (firstResult.TryGetProperty("NodeId", out JsonElement idElement))
                         {
-                            return idElement.GetRawText().Trim('\"');
+                            string nodeId = idElement.GetRawText().Trim('\"');
+                            _logger.Log($"Found unique name NodeId: {nodeId}", LogLevel.TRACE);
+                            return nodeId;
                         }
-
                     }
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[ERROR] Exception in ExtractWorkspaceNodeId: {ex.Message}");
+                _logger.LogException(ex, LogLevel.ERROR);
+                _logger.Log($"Exception in ExtractUniqueNameId: {ex.Message}", LogLevel.ERROR);
             }
+
+            _logger.Log("Could not find unique name ID in response", LogLevel.WARNING);
             return null;
         }
+
+        /// <summary>
+        /// Creates a new Change Request Business Workspace using the OpenText API.
+        /// </summary>
+        /// <param name="boType">Business Object Type</param>
+        /// <param name="boId">Business Object ID</param>
+        /// <param name="ticket">Authentication ticket</param>
+        /// <param name="updateRequest">Request containing CR data</param>
+        /// <returns>Response containing the created workspace details</returns>
+        /// <exception cref="Exception">Thrown when workspace creation fails</exception>
         public async Task<BusinessWorkspaceResponse?> CreateBusinessWorkspaceCRAsync(string boType, string boId, string ticket, DTOs.ChangeRequestUpdateRequest updateRequest)
         {
+            _logger.Log($"Starting CreateBusinessWorkspaceCRAsync for BO: {boType}/{boId}", LogLevel.INFO);
+
             var baseUrl = _settings.BaseUrl;
             var extSystemId = _settings.ExtSystemId;
             var url = $"{baseUrl}/api/v2/businessworkspaces/";
+
+            _logger.Log($"CR Workspace creation URL: {url}", LogLevel.DEBUG);
+
             var uNameParentId = "";
             var uNameTemplateId = "";
             var uNameWorkspaceTypeId = "";
+
+            // Get category unique names
+            _logger.Log("Getting category unique names", LogLevel.DEBUG);
             var crCategory = await GetUniqueName(ticket, "SMDG_CR_CATEGORY");
             var crBOCategory = await GetUniqueName(ticket, "SMDG_CR_BO_CATEGORY");
 
+            _logger.Log($"CR Category ID: {crCategory}, CR BO Category ID: {crBOCategory}", LogLevel.DEBUG);
 
-            // Format Business Object Number
+            // Format Business Object Number based on type
+            _logger.Log($"Formatting Business Object ID for type: {boType}", LogLevel.DEBUG);
             if (boType.Equals("BUS1001006", StringComparison.OrdinalIgnoreCase) ||
                 boType.Equals("BUS1001001", StringComparison.OrdinalIgnoreCase))
             {
@@ -170,45 +318,52 @@ namespace OpenTextIntegrationAPI.Services
 
                 if (boType.Equals("BUS1001006", StringComparison.OrdinalIgnoreCase))
                 {
-                    uNameParentId = _settings.uNamePIBUS1001006;// _configuration["OpenText:uNamePIBUS1001006"];
-                    uNameTemplateId = _settings.uNameTIBUS1001006; // _configuration["OpenText:uNameTIBUS1001006"];
-                    uNameWorkspaceTypeId = _settings.uNameWTIBUS1001006; // _configuration["OpenText:uNameWTIBUS1001006"];
-                } else
-                {
-                    uNameParentId = _settings.uNamePIBUS1001001; // _configuration["OpenText:uNamePIBUS1001001"];
-                    uNameTemplateId = _settings.uNameTIBUS1001001; // _configuration["OpenText:uNameTIBUS1001001"];
-                    uNameWorkspaceTypeId = _settings.uNameWTIBUS1001001; // _configuration["OpenText:uNameWTIBUS1001001"];
+                    uNameParentId = _settings.uNamePIBUS1001006;
+                    uNameTemplateId = _settings.uNameTIBUS1001006;
+                    uNameWorkspaceTypeId = _settings.uNameWTIBUS1001006;
                 }
-                    
-                Debug.WriteLine($"[DEBUG] Formatted boId for {boType}: {boId}");
+                else
+                {
+                    uNameParentId = _settings.uNamePIBUS1001001;
+                    uNameTemplateId = _settings.uNameTIBUS1001001;
+                    uNameWorkspaceTypeId = _settings.uNameWTIBUS1001001;
+                }
+
+                _logger.Log($"Formatted boId for {boType}: {boId}", LogLevel.DEBUG);
             }
             else if (boType.Equals("BUS1006", StringComparison.OrdinalIgnoreCase))
             {
                 boId = boId.PadLeft(10, '0');
-                uNameParentId = _settings.uNamePIBUS1006; // _configuration["OpenText:uNamePIBUS1006"];
-                uNameTemplateId = _settings.uNameTIBUS1006; // _configuration["OpenText:uNameTIBUS1006"];
-                uNameWorkspaceTypeId = _settings.uNameWTIBUS1006; // _configuration["OpenText:uNameWTIBUS1006"];
-                Debug.WriteLine($"[DEBUG] Formatted boId for {boType}: {boId}");
+                uNameParentId = _settings.uNamePIBUS1006;
+                uNameTemplateId = _settings.uNameTIBUS1006;
+                uNameWorkspaceTypeId = _settings.uNameWTIBUS1006;
+
+                _logger.Log($"Formatted boId for {boType}: {boId}", LogLevel.DEBUG);
             }
             else if (boType.Equals("BUS2250", StringComparison.OrdinalIgnoreCase))
             {
                 boId = boId.PadLeft(12, '0');
-                uNameParentId = _settings.uNamePIBUS2250; // _configuration["OpenText:uNamePIBUS2250"];
-                uNameTemplateId = _settings.uNameTIBUS2250; // _configuration["OpenText:uNameTIBUS2250"];
-                uNameWorkspaceTypeId = _settings.uNameWTIBUS2250; //  _configuration["OpenText:uNameWTIBUS2250"];
+                uNameParentId = _settings.uNamePIBUS2250;
+                uNameTemplateId = _settings.uNameTIBUS2250;
+                uNameWorkspaceTypeId = _settings.uNameWTIBUS2250;
+
+                _logger.Log($"Formatted boId for {boType}: {boId}", LogLevel.DEBUG);
             }
 
-            // Get Parent Id
+            // Get template and workspace type IDs from unique names
+            _logger.Log("Getting unique names for parent, template and workspace type", LogLevel.DEBUG);
             var cParentId = await GetUniqueName(ticket, uNameParentId);
-
-            // Get Template Id
             var cTemplateId = await GetUniqueName(ticket, uNameTemplateId);
-
-            // Get WSKP ID
             var cWorkspaceTypeId = await GetUniqueName(ticket, uNameWorkspaceTypeId);
 
-            // Converts Current DateTime
+            _logger.Log($"Parent ID: {cParentId}, Template ID: {cTemplateId}, Workspace Type ID: {cWorkspaceTypeId}", LogLevel.DEBUG);
+
+            // Current date and time for creation date
             string BOcreationDate = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss");
+            _logger.Log($"Creation date: {BOcreationDate}", LogLevel.DEBUG);
+
+            // Validate date formats
+            _logger.Log("Validating date formats in request", LogLevel.DEBUG);
 
             // Checks Create At Date
             if (!DateTime.TryParseExact(updateRequest.CreatedAt,
@@ -217,6 +372,7 @@ namespace OpenTextIntegrationAPI.Services
                                         DateTimeStyles.None,
                                         out DateTime parsedCreatedDate))
             {
+                _logger.Log($"Invalid CreatedAt date format: {updateRequest.CreatedAt}", LogLevel.WARNING);
                 updateRequest.CreatedAt = string.Empty;
             }
 
@@ -227,6 +383,7 @@ namespace OpenTextIntegrationAPI.Services
                                         DateTimeStyles.None,
                                         out DateTime parsedModifiedDate))
             {
+                _logger.Log($"Invalid ModifiedAt date format: {updateRequest.ModifiedAt}", LogLevel.WARNING);
                 updateRequest.ModifiedAt = string.Empty;
             }
 
@@ -237,10 +394,12 @@ namespace OpenTextIntegrationAPI.Services
                                         DateTimeStyles.None,
                                         out DateTime parsedEndTimeDate))
             {
+                _logger.Log($"Invalid EndTime date format: {updateRequest.EndTime}", LogLevel.WARNING);
                 updateRequest.EndTime = string.Empty;
             }
 
-            // Forms the Creation JSON
+            // Forms the Creation JSON with category data
+            _logger.Log("Creating workspace creation JSON with categories", LogLevel.DEBUG);
             var workspaceCreationBody = new
             {
                 parent_id = cParentId,
@@ -248,8 +407,8 @@ namespace OpenTextIntegrationAPI.Services
                 wksp_type_id = cWorkspaceTypeId,
                 name = boId + " - " + updateRequest.ChangeRequestName,
 
-                roles = new 
-                { 
+                roles = new
+                {
                     categories = new Dictionary<string, object>
                     {
                         {
@@ -283,77 +442,146 @@ namespace OpenTextIntegrationAPI.Services
                     }
                 }
             };
+
             string jsonBody = JsonSerializer.Serialize(workspaceCreationBody);
+
+            // Log request details (limited to reasonable size due to potentially large JSON)
+            _logger.LogRawApi("api_request_create_cr_workspace",
+                jsonBody.Length > 1000 ? jsonBody.Substring(0, 1000) + "..." : jsonBody);
+
             var content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 { "body", jsonBody }
             });
+
             var request = new HttpRequestMessage(HttpMethod.Post, url)
             {
                 Content = content
             };
-            AddTicketHeader(request);
-            Debug.WriteLine($"[DEBUG] Creating Business Workspace via: {url} with body: {jsonBody}");
 
-            var response = await _httpClient.SendAsync(request);
-            if (!response.IsSuccessStatusCode)
-            {
-                var err = await response.Content.ReadAsStringAsync();
-                Debug.WriteLine($"[ERROR] Business Workspace creation failed: {err}");
-                throw new Exception($"Business Workspace creation failed with status {response.StatusCode}: {err}");
-            }
-            var responseJson = await response.Content.ReadAsStringAsync();
-            Debug.WriteLine($"[DEBUG] Business Workspace creation response: {responseJson.Substring(0, Math.Min(300, responseJson.Length))}");
+            AddTicketHeader(request);
+            _logger.Log($"Sending request to create CR Business Workspace", LogLevel.DEBUG);
+
+            // Send request
+            HttpResponseMessage response;
             try
             {
-                var newBoId = ParseBusinessWorkspaceId(responseJson);
-                // If the BO has a reference BO we create the relationship
+                response = await _httpClient.SendAsync(request);
 
-                // Step 2: Instantiate BusinessWorkspaceService class
-                var workspaceRelService = new BusinessWorkspaceService(_httpClient, ticket, _masterData,_settings, _csUtilities, _csNode);
+                // Check for successful response
+                if (!response.IsSuccessStatusCode)
+                {
+                    var err = await response.Content.ReadAsStringAsync();
+                    _logger.Log($"CR Business Workspace creation failed: {response.StatusCode} - {err}", LogLevel.ERROR);
+
+                    // Log error response
+                    _logger.LogRawApi("api_response_create_cr_workspace_error", err);
+
+                    throw new Exception($"Business Workspace creation failed with status {response.StatusCode}: {err}");
+                }
+            }
+            catch (Exception ex) when (!(ex is Exception))
+            {
+                _logger.LogException(ex, LogLevel.ERROR);
+                _logger.Log($"Error sending CR workspace creation request: {ex.Message}", LogLevel.ERROR);
+                throw;
+            }
+
+            // Process response
+            var responseJson = await response.Content.ReadAsStringAsync();
+
+            // Log response (limited to reasonable size)
+            _logger.LogRawApi("api_response_create_cr_workspace",
+                responseJson.Length > 1000 ? responseJson.Substring(0, 1000) + "..." : responseJson);
+
+            try
+            {
+                _logger.Log("Parsing workspace creation response", LogLevel.DEBUG);
+                var newBoId = ParseBusinessWorkspaceId(responseJson);
+                _logger.Log($"Created workspace with ID: {newBoId}", LogLevel.INFO);
+
+                // Create helper service for relationship management
+                var workspaceRelService = new BusinessWorkspaceService(_httpClient, ticket, _masterData, _settings, _csUtilities, _csNode, _logger);
+
+                // If the BO has a reference BO we create the relationship
                 if (!string.IsNullOrEmpty(updateRequest.MainBOId))
                 {
                     try
                     {
-                        // Step 2: Instantiate BusinessWorkspaceService class
-                        var workspaceService = new BusinessWorkspaceService(_httpClient, ticket, _masterData, _settings, _csUtilities, _csNode);
+                        _logger.Log($"Creating relationship with main BO: {updateRequest.MainBOType}/{updateRequest.MainBOId}", LogLevel.DEBUG);
 
-                        // Step 3: Search the Business Workspace.
+                        // Create another service instance
+                        var workspaceService = new BusinessWorkspaceService(_httpClient, ticket, _masterData, _settings, _csUtilities, _csNode, _logger);
+
+                        // Search the Main Business Workspace
                         var wsMBOResponse = await _masterData.SearchBusinessWorkspaceAsync(updateRequest.MainBOType, updateRequest.MainBOId, ticket);
                         string? workspaceNodeId = null;
 
                         if (wsMBOResponse != null && wsMBOResponse.results.Count > 0)
                         {
-                            // TODO Update the Data on the Category
+                            // Update the data on the Category
                             var first = wsMBOResponse.results[0].data.properties;
                             workspaceNodeId = first.id.ToString();
+
+                            _logger.Log($"Found main workspace with ID: {workspaceNodeId}", LogLevel.DEBUG);
                             await CreateBORelationAsync(workspaceNodeId, newBoId, ticket);
+                            _logger.Log("Relationship created successfully", LogLevel.INFO);
                         }
-                            
+                        else
+                        {
+                            _logger.Log($"Main workspace not found for {updateRequest.MainBOType}/{updateRequest.MainBOId}", LogLevel.WARNING);
+                        }
                     }
                     catch (Exception ex)
                     {
-                        Debug.WriteLine($"[DEBUG] Business Workspace relationship could not be created");
+                        _logger.LogException(ex, LogLevel.ERROR);
+                        _logger.Log($"Business Workspace relationship could not be created: {ex.Message}", LogLevel.WARNING);
                     }
-                    
                 }
-                
+
+                _logger.Log($"Successfully created CR Business Workspace for {boType}/{boId}", LogLevel.INFO);
                 return null;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[ERROR] Failed to deserialize BusinessWorkspaceResponse during creation: {ex.Message}");
+                _logger.LogException(ex, LogLevel.ERROR);
+                _logger.Log($"Failed to process workspace creation response: {ex.Message}", LogLevel.ERROR);
                 throw;
             }
         }
+
+        /// <summary>
+        /// Updates an existing Change Request Business Workspace with new data.
+        /// </summary>
+        /// <param name="boType">Business Object Type</param>
+        /// <param name="boId">Business Object ID</param>
+        /// <param name="workspaceNodeId">Node ID of the workspace to update</param>
+        /// <param name="ticket">Authentication ticket</param>
+        /// <param name="updateRequest">Request containing update data</param>
+        /// <param name="newStatus">Optional new status (default: "SUBMITTED")</param>
+        /// <returns>True if update was successful</returns>
+        /// <exception cref="Exception">Thrown when update fails</exception>
         public async Task<bool> UpdateBusinessWorkspaceCRAsync(string boType, string boId, string workspaceNodeId, string ticket, DTOs.ChangeRequestUpdateRequest updateRequest, string? newStatus = "SUBMITTED")
         {
+            _logger.Log($"Starting UpdateBusinessWorkspaceCRAsync for workspace: {workspaceNodeId}, BO: {boType}/{boId}", LogLevel.INFO);
+
             var baseUrl = _settings.BaseUrl;
+
+            // Get category unique names
+            _logger.Log("Getting category unique names", LogLevel.DEBUG);
             var crCategory = await GetUniqueName(ticket, "SMDG_CR_CATEGORY");
             var crBOCategory = await GetUniqueName(ticket, "SMDG_CR_BO_CATEGORY");
 
+            _logger.Log($"CR Category ID: {crCategory}, CR BO Category ID: {crBOCategory}", LogLevel.DEBUG);
+
+            // Create URLs for category updates
             var urlCat = $"{baseUrl}/api/v2/nodes/{workspaceNodeId}/categories/{crCategory}";
             var urlBOCat = $"{baseUrl}/api/v2/nodes/{workspaceNodeId}/categories/{crBOCategory}";
+
+            _logger.Log($"Category update URLs: {urlCat}, {urlBOCat}", LogLevel.DEBUG);
+
+            // Validate date formats
+            _logger.Log("Validating date formats in request", LogLevel.DEBUG);
 
             // Checks Create At Date
             if (!DateTime.TryParseExact(updateRequest.CreatedAt,
@@ -362,6 +590,7 @@ namespace OpenTextIntegrationAPI.Services
                                         DateTimeStyles.None,
                                         out DateTime parsedCreatedDate))
             {
+                _logger.Log($"Invalid CreatedAt date format: {updateRequest.CreatedAt}", LogLevel.WARNING);
                 updateRequest.CreatedAt = string.Empty;
             }
 
@@ -372,6 +601,7 @@ namespace OpenTextIntegrationAPI.Services
                                         DateTimeStyles.None,
                                         out DateTime parsedModifiedDate))
             {
+                _logger.Log($"Invalid ModifiedAt date format: {updateRequest.ModifiedAt}", LogLevel.WARNING);
                 updateRequest.ModifiedAt = string.Empty;
             }
 
@@ -382,10 +612,12 @@ namespace OpenTextIntegrationAPI.Services
                                         DateTimeStyles.None,
                                         out DateTime parsedEndTimeDate))
             {
+                _logger.Log($"Invalid EndTime date format: {updateRequest.EndTime}", LogLevel.WARNING);
                 updateRequest.EndTime = string.Empty;
             }
 
-            // Forms the Creation JSON
+            // Prepare category data for BO
+            _logger.Log("Creating category update JSON", LogLevel.DEBUG);
             var crBOCategoryBody = new Dictionary<string, string> // Internal BO Category
             {
                 { $"{crBOCategory}_2", updateRequest.MainBOId },
@@ -393,6 +625,7 @@ namespace OpenTextIntegrationAPI.Services
                 { $"{crBOCategory}_5", newStatus}  // updateRequest.Status
             };
 
+            // Prepare category data for CR
             var crCategoryBody = new Dictionary<string, string> // Change Rq Category
             {
                 { $"{crCategory}_15", boId }, // CR Id
@@ -410,14 +643,20 @@ namespace OpenTextIntegrationAPI.Services
                 { $"{crCategory}_17", updateRequest.RequestType }, // Request Type
                 { $"{crCategory}_18", updateRequest.ObjectType } // Object Type
             };
-             
+
             string jsonCatBody = JsonSerializer.Serialize(crCategoryBody);
             string jsonBOCatBody = JsonSerializer.Serialize(crBOCategoryBody);
 
+            // Log request details
+            _logger.LogRawApi("api_request_update_cr_category", jsonCatBody);
+            _logger.LogRawApi("api_request_update_cr_bo_category", jsonBOCatBody);
+
+            // Prepare content and requests for both categories
             var contentCat = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 { "body", jsonCatBody }
             });
+
             var contentBOCat = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 { "body", jsonBOCatBody }
@@ -427,6 +666,7 @@ namespace OpenTextIntegrationAPI.Services
             {
                 Content = contentCat
             };
+
             var requestBOCat = new HttpRequestMessage(HttpMethod.Put, urlBOCat)
             {
                 Content = contentBOCat
@@ -435,86 +675,190 @@ namespace OpenTextIntegrationAPI.Services
             AddTicketHeader(requestCat);
             AddTicketHeader(requestBOCat);
 
-            var responseCat = await _httpClient.SendAsync(requestCat);
-            if (!responseCat.IsSuccessStatusCode)
-            {
-                var err = await responseCat.Content.ReadAsStringAsync();
-                throw new Exception($"Business Workspace update failed with status {responseCat.StatusCode}: {err}");
-            }
-
-            var responseBOCat = await _httpClient.SendAsync(requestBOCat);
-
-            if (!responseBOCat.IsSuccessStatusCode)
-            {
-                var err = await responseBOCat.Content.ReadAsStringAsync();
-                throw new Exception($"Business Workspace update failed with status {responseBOCat.StatusCode}: {err}");
-            }
-
+            // Update CR category
+            _logger.Log("Updating CR category", LogLevel.DEBUG);
+            HttpResponseMessage responseCat;
             try
             {
-                var wsMBOResponse = await _masterData.SearchBusinessWorkspaceAsync(updateRequest.MainBOType, updateRequest.MainBOId, ticket);
-                if (wsMBOResponse != null && wsMBOResponse.results.Count > 0)
+                responseCat = await _httpClient.SendAsync(requestCat);
+
+                // Check for successful response
+                if (!responseCat.IsSuccessStatusCode)
                 {
-                    // TODO Update the Data on the Category
-                    var first = wsMBOResponse.results[0].data.properties;
-                    var workspaceMainNodeId = first.id.ToString();
-                    //await CreateBORelationAsync(workspaceNodeId, newBoId, ticket);
-                    await CreateBORelationAsync(workspaceMainNodeId, workspaceNodeId, ticket);
+                    var err = await responseCat.Content.ReadAsStringAsync();
+                    _logger.Log($"CR category update failed: {responseCat.StatusCode} - {err}", LogLevel.ERROR);
+
+                    // Log error response
+                    _logger.LogRawApi("api_response_update_cr_category_error", err);
+
+                    throw new Exception($"Business Workspace update failed with status {responseCat.StatusCode}: {err}");
                 }
 
-               
+                string responseCatJson = await responseCat.Content.ReadAsStringAsync();
+                _logger.LogRawApi("api_response_update_cr_category", responseCatJson);
+            }
+            catch (Exception ex) when (!(ex is Exception))
+            {
+                _logger.LogException(ex, LogLevel.ERROR);
+                _logger.Log($"Error updating CR category: {ex.Message}", LogLevel.ERROR);
+                throw;
+            }
+
+            // Update BO category
+            _logger.Log("Updating BO category", LogLevel.DEBUG);
+            HttpResponseMessage responseBOCat;
+            try
+            {
+                responseBOCat = await _httpClient.SendAsync(requestBOCat);
+
+                // Check for successful response
+                if (!responseBOCat.IsSuccessStatusCode)
+                {
+                    var err = await responseBOCat.Content.ReadAsStringAsync();
+                    _logger.Log($"BO category update failed: {responseBOCat.StatusCode} - {err}", LogLevel.ERROR);
+
+                    // Log error response
+                    _logger.LogRawApi("api_response_update_cr_bo_category_error", err);
+
+                    throw new Exception($"Business Workspace update failed with status {responseBOCat.StatusCode}: {err}");
+                }
+
+                string responseBOCatJson = await responseBOCat.Content.ReadAsStringAsync();
+                _logger.LogRawApi("api_response_update_cr_bo_category", responseBOCatJson);
+            }
+            catch (Exception ex) when (!(ex is Exception))
+            {
+                _logger.LogException(ex, LogLevel.ERROR);
+                _logger.Log($"Error updating BO category: {ex.Message}", LogLevel.ERROR);
+                throw;
+            }
+
+            // Create relationship with main BO workspace if needed
+            try
+            {
+                _logger.Log($"Searching for main BO workspace: {updateRequest.MainBOType}/{updateRequest.MainBOId}", LogLevel.DEBUG);
+                var wsMBOResponse = await _masterData.SearchBusinessWorkspaceAsync(updateRequest.MainBOType, updateRequest.MainBOId, ticket);
+
+                if (wsMBOResponse != null && wsMBOResponse.results.Count > 0)
+                {
+                    // Extract main workspace node ID
+                    var first = wsMBOResponse.results[0].data.properties;
+                    var workspaceMainNodeId = first.id.ToString();
+
+                    _logger.Log($"Found main workspace with ID: {workspaceMainNodeId}", LogLevel.DEBUG);
+
+                    // Create relationship between workspaces
+                    await CreateBORelationAsync(workspaceMainNodeId, workspaceNodeId, ticket);
+                    _logger.Log("Relationship created successfully", LogLevel.INFO);
+                }
+                else
+                {
+                    _logger.Log($"Main workspace not found for {updateRequest.MainBOType}/{updateRequest.MainBOId}", LogLevel.WARNING);
+                }
             }
             catch (Exception ex)
             {
-               
+                _logger.LogException(ex, LogLevel.WARNING);
+                _logger.Log($"Error creating BO relationship: {ex.Message}", LogLevel.WARNING);
+                // Continue with the update even if relationship creation fails
             }
 
+            // Apply RM classification if status is not SUBMITTED
             string rmClassification = "";
-            rmClassification = GetUniqueName(ticket, $"SMDG_RM_{updateRequest.MainBOType}").Result;
-
-            if (newStatus != "SUMITTED" && updateRequest.MainBOType != "")
+            try
             {
-                if (rmClassification != "") { 
+                rmClassification = await GetUniqueName(ticket, $"SMDG_RM_{updateRequest.MainBOType}");
+                _logger.Log($"RM classification ID retrieved: {rmClassification}", LogLevel.DEBUG);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogException(ex, LogLevel.WARNING);
+                _logger.Log($"Error getting RM classification: {ex.Message}", LogLevel.WARNING);
+            }
+
+            if (newStatus != "SUBMITTED" && !string.IsNullOrEmpty(updateRequest.MainBOType))
+            {
+                _logger.Log("Checking for Records Management classification", LogLevel.DEBUG);
+
+                if (!string.IsNullOrEmpty(rmClassification))
+                {
+                    _logger.Log($"Applying RM classification: {rmClassification} to workspace {workspaceNodeId}", LogLevel.DEBUG);
+
                     try
                     {
                         await _csUtilities.ApplyRMClassificationAsync(workspaceNodeId, rmClassification, ticket);
+                        _logger.Log("RM classification applied successfully to workspace", LogLevel.INFO);
                     }
                     catch (Exception ex)
                     {
-                        //throw new Exception($"Business Workspace rejected but Records Management Classification not added: {ex.Message}");
+                        _logger.LogException(ex, LogLevel.WARNING);
+                        _logger.Log($"Failed to apply RM classification to workspace: {ex.Message}", LogLevel.WARNING);
+                        // Continue with the update even if classification fails
                     }
                 }
+                else
+                {
+                    _logger.Log($"No RM classification found for {updateRequest.MainBOType}", LogLevel.WARNING);
+                }
             }
+
+            // Apply RM classification to all documents in the workspace
             try
             {
+                _logger.Log($"Retrieving documents from workspace {workspaceNodeId}", LogLevel.DEBUG);
                 List<DocumentInfo> documents = await _csNode.GetNodeSubNodesAsync(workspaceNodeId, ticket, "Master", null);
+                _logger.Log($"Found {documents.Count} documents to apply RM classification", LogLevel.DEBUG);
 
                 foreach (DocumentInfo document in documents)
                 {
-                    // Procesa cada documento según necesites.
-                    await _csUtilities.ApplyRMClassificationAsync(document.NodeId, rmClassification, ticket);
-                    //Console.WriteLine($"Documento: {document.Name}, ID: {document.Id}");
-                    // O cualquier otra acción con "document"
+                    if (!string.IsNullOrEmpty(rmClassification))
+                    {
+                        try
+                        {
+                            _logger.Log($"Applying RM classification to document: {document.Name} (NodeId: {document.NodeId})", LogLevel.DEBUG);
+                            await _csUtilities.ApplyRMClassificationAsync(document.NodeId, rmClassification, ticket);
+                            _logger.Log($"RM classification applied successfully to document: {document.Name}", LogLevel.DEBUG);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogException(ex, LogLevel.WARNING);
+                            _logger.Log($"Failed to apply RM classification to document {document.Name}: {ex.Message}", LogLevel.WARNING);
+                            // Continue with other documents even if one fails
+                        }
+                    }
                 }
-            } catch (Exception ex)
+            }
+            catch (Exception ex)
             {
-
+                _logger.LogException(ex, LogLevel.WARNING);
+                _logger.Log($"Error processing documents for RM classification: {ex.Message}", LogLevel.WARNING);
+                // Continue with the update even if document classification fails
             }
 
+            _logger.Log($"Successfully updated CR Business Workspace {workspaceNodeId}", LogLevel.INFO);
             return true;
         }
+
+        /// <summary>
+        /// Parses the ID of a newly created Business Workspace from a JSON response.
+        /// </summary>
+        /// <param name="responseJson">JSON response from workspace creation</param>
+        /// <returns>Workspace ID as string</returns>
         public string ParseBusinessWorkspaceId(string responseJson)
         {
+            _logger.Log("Parsing Business Workspace ID from response", LogLevel.DEBUG);
+
             try
             {
                 using (JsonDocument doc = JsonDocument.Parse(responseJson))
-                { 
+                {
                     if (doc.RootElement.TryGetProperty("results", out JsonElement resultElement))
                     {
                         if (resultElement.TryGetProperty("id", out JsonElement idElem))
                         {
                             int wsIdint = idElem.GetInt32();
                             string wsId = wsIdint.ToString();
+                            _logger.Log($"Extracted workspace ID: {wsId}", LogLevel.DEBUG);
                             return wsId;
                         }
                     }
@@ -522,12 +866,26 @@ namespace OpenTextIntegrationAPI.Services
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[ERROR] Failed to get Node Id of New Business Workspace: {ex.Message}");
+                _logger.LogException(ex, LogLevel.ERROR);
+                _logger.Log($"Failed to get Node ID of New Business Workspace: {ex.Message}", LogLevel.ERROR);
             }
+
+            _logger.Log("Could not extract workspace ID, returning default value '0'", LogLevel.WARNING);
             return "0";
         }
+
+        /// <summary>
+        /// Creates a relationship between two Business Workspaces.
+        /// </summary>
+        /// <param name="MainBoId">ID of the main (parent) Business Workspace</param>
+        /// <param name="boId">ID of the child Business Workspace</param>
+        /// <param name="ticket">Authentication ticket</param>
+        /// <returns>Task representing the asynchronous operation</returns>
+        /// <exception cref="Exception">Thrown when relationship creation fails</exception>
         private async Task CreateBORelationAsync(string MainBoId, string boId, string ticket)
         {
+            _logger.Log($"Creating BO relationship: Main BO ID: {MainBoId}, Child BO ID: {boId}", LogLevel.DEBUG);
+
             var baseUrl = _settings.BaseUrl;
 
             void AddTicketHeader(HttpRequestMessage req)
@@ -538,15 +896,20 @@ namespace OpenTextIntegrationAPI.Services
 
             // Post Relation to main BO
             var wsEDUrl = $"{baseUrl}/api/v2/businessworkspaces/{MainBoId}/relateditems";
+            _logger.Log($"Relationship creation URL: {wsEDUrl}", LogLevel.DEBUG);
 
-            //var wsEDRequest = new HttpRequestMessage(HttpMethod.Post, wsEDUrl);
-
+            // Prepare relationship data
             var formData = new Dictionary<string, string>
             {
                 { "rel_bw_id", boId },
                 { "rel_type" , "child"}
             };
 
+            // Log request details
+            _logger.LogRawApi("api_request_create_bo_relation",
+                JsonSerializer.Serialize(formData));
+
+            // Create and configure request
             using var wsEDRequest = new HttpRequestMessage(HttpMethod.Post, wsEDUrl)
             {
                 Content = new FormUrlEncodedContent(formData)
@@ -554,17 +917,36 @@ namespace OpenTextIntegrationAPI.Services
 
             AddTicketHeader(wsEDRequest);
 
-            Debug.WriteLine($"[DEBUG] Post the Relation: {wsEDUrl}");
-            var wsEDResponse = await _httpClient.SendAsync(wsEDRequest);
-
-            if (!wsEDResponse.IsSuccessStatusCode)
+            // Send request
+            HttpResponseMessage wsEDResponse;
+            try
             {
-                var err = await wsEDResponse.Content.ReadAsStringAsync();
-                Debug.WriteLine($"[ERROR] Business Workspace search failed search of Unique Names: {err}");
-                throw new Exception($"Business Workspace search failed with status {wsEDResponse.StatusCode}: {err}");
+                _logger.Log("Sending relationship creation request", LogLevel.DEBUG);
+                wsEDResponse = await _httpClient.SendAsync(wsEDRequest);
+
+                // Check for successful response
+                if (!wsEDResponse.IsSuccessStatusCode)
+                {
+                    var err = await wsEDResponse.Content.ReadAsStringAsync();
+                    _logger.Log($"BO relationship creation failed: {wsEDResponse.StatusCode} - {err}", LogLevel.ERROR);
+
+                    // Log error response
+                    _logger.LogRawApi("api_response_create_bo_relation_error", err);
+
+                    throw new Exception($"Business Workspace search failed with status {wsEDResponse.StatusCode}: {err}");
+                }
+
+                var wsEDJson = await wsEDResponse.Content.ReadAsStringAsync();
+                _logger.LogRawApi("api_response_create_bo_relation", wsEDJson);
+
+                _logger.Log("BO relationship created successfully", LogLevel.INFO);
             }
-            var wsEDJson = await wsEDResponse.Content.ReadAsStringAsync();
-            
+            catch (Exception ex) when (!(ex is Exception))
+            {
+                _logger.LogException(ex, LogLevel.ERROR);
+                _logger.Log($"Error creating BO relationship: {ex.Message}", LogLevel.ERROR);
+                throw;
+            }
         }
     }
 }

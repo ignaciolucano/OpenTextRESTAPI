@@ -14,16 +14,17 @@
     [Route("v1/[controller]")]
     public class ChangeRequestController : ControllerBase
     {
-       
         private readonly AuthManager _authManager;
         private readonly CRBusinessWorkspace _crBusinessWorkspace;
         private readonly Node _csNode;
+        private readonly ILogService _logger;
 
-        public ChangeRequestController( AuthManager authManager,CRBusinessWorkspace crBusinessWorkspace, Node csNode)
+        public ChangeRequestController(AuthManager authManager, CRBusinessWorkspace crBusinessWorkspace, Node csNode, ILogService logger)
         {
             _authManager = authManager;
             _crBusinessWorkspace = crBusinessWorkspace;
             _csNode = csNode;
+            _logger = logger;
         }
 
         // POST: /v1/ChangeRequest/{boType}/{boId}
@@ -40,6 +41,18 @@
         [Produces("application/json")]
         public async Task<IActionResult> ApproveChangeRequest(string crBoId, string origBoType, string origBoId, [FromBody] DTOs.ChangeRequestUpdateRequest updateRequest)
         {
+            // Log inbound request
+            _logger.LogRawInbound("inbound_request_approve_change_request",
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    crBoId,
+                    origBoType,
+                    origBoId,
+                    source_ip = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                    timestamp = DateTime.UtcNow
+                })
+            );
+
             // Get's Ticket from Request
             string ticket = "";
             try
@@ -48,21 +61,50 @@
             }
             catch (Exception ex)
             {
+                // Log error response
+                _logger.LogRawInbound("inbound_response_approve_change_request_auth_error",
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        status = "error",
+                        error_message = ex.Message,
+                        timestamp = DateTime.UtcNow
+                    })
+                );
+
                 // Return a 401 status code if auth fails.
-                return StatusCode(401, $"Error Rejecting Change Request: {ex.Message}");
+                return StatusCode(401, $"Error Approving Change Request: {ex.Message}");
             }
 
             ChangeRequestUpdateResponse docs;
             try
             {
                 docs = await _crBusinessWorkspace.UpdateChangeRequestDataAsync("BUS2250", crBoId, ticket, updateRequest, "APPROVED");
+
+                // Log successful response
+                _logger.LogRawInbound("inbound_response_approve_change_request_success",
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        status = "success",
+                        message = docs.Message,
+                        timestamp = DateTime.UtcNow
+                    })
+                );
             }
             catch (Exception ex)
             {
+                // Log error response
+                _logger.LogRawInbound("inbound_response_approve_change_request_error",
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        status = "error",
+                        error_message = ex.Message,
+                        timestamp = DateTime.UtcNow
+                    })
+                );
+
                 return BadRequest("Error processing request: " + ex.Message);
             }
 
-            //var response = await _openTextService.UpdateChangeRequestDataAsync(boType, boId, ticket, updateRequest);
             return Ok(docs);
         }
 
@@ -80,6 +122,18 @@
         [Produces("application/json")]
         public async Task<IActionResult> RejectChangeRequest(string crBoId, string origBoType, string origBoId, [FromBody] DTOs.ChangeRequestUpdateRequest updateRequest)
         {
+            // Log inbound request
+            _logger.LogRawInbound("inbound_request_reject_change_request",
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    crBoId,
+                    origBoType,
+                    origBoId,
+                    source_ip = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                    timestamp = DateTime.UtcNow
+                })
+            );
+
             // Get's Ticket from Request
             string ticket = "";
             try
@@ -88,6 +142,16 @@
             }
             catch (Exception ex)
             {
+                // Log error response
+                _logger.LogRawInbound("inbound_response_reject_change_request_auth_error",
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        status = "error",
+                        error_message = ex.Message,
+                        timestamp = DateTime.UtcNow
+                    })
+                );
+
                 // Return a 401 status code if auth fails.
                 return StatusCode(401, $"Error Rejecting Change Request: {ex.Message}");
             }
@@ -96,13 +160,32 @@
             try
             {
                 docs = await _crBusinessWorkspace.UpdateChangeRequestDataAsync("BUS2250", crBoId, ticket, updateRequest, "REJECTED");
+
+                // Log successful response
+                _logger.LogRawInbound("inbound_response_reject_change_request_success",
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        status = "success",
+                        message = docs.Message,
+                        timestamp = DateTime.UtcNow
+                    })
+                );
             }
             catch (Exception ex)
             {
+                // Log error response
+                _logger.LogRawInbound("inbound_response_reject_change_request_error",
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        status = "error",
+                        error_message = ex.Message,
+                        timestamp = DateTime.UtcNow
+                    })
+                );
+
                 return BadRequest("Error processing request: " + ex.Message);
             }
 
-            //var response = await _openTextService.UpdateChangeRequestDataAsync(boType, boId, ticket, updateRequest);
             return Ok(docs);
         }
 
@@ -120,6 +203,17 @@
         [Produces("application/json")]
         public async Task<IActionResult> GetDocumentsChangeRequest(string boType, string boId)
         {
+            // Log inbound request
+            _logger.LogRawInbound("inbound_request_get_change_request_documents",
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    boType,
+                    boId,
+                    source_ip = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                    timestamp = DateTime.UtcNow
+                })
+            );
+
             // Get's Ticket from Request
             string ticket = "";
             try
@@ -128,20 +222,52 @@
             }
             catch (Exception ex)
             {
-                // Return a 401 status code if auth fails.
-                return StatusCode(401, $"Error Getting Change Request Documents:  {ex.Message}");
-            }
+                // Log error response
+                _logger.LogRawInbound("inbound_response_get_change_request_documents_auth_error",
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        status = "error",
+                        error_message = ex.Message,
+                        timestamp = DateTime.UtcNow
+                    })
+                );
 
+                // Return a 401 status code if auth fails.
+                return StatusCode(401, $"Error Getting Change Request Documents: {ex.Message}");
+            }
 
             MasterDataDocumentsResponse docs;
             try
             {
                 docs = await _crBusinessWorkspace.GetDocumentsChangeRequestAsync(boType, boId, ticket);
-            } catch (Exception ex)
-            {
-                return BadRequest("Error processing request: "+ex.Message);
+
+                // Log successful response
+                _logger.LogRawInbound("inbound_response_get_change_request_documents_success",
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        status = "success",
+                        boType = docs.Header.BoType,
+                        boId = docs.Header.BoId,
+                        file_count = docs.Files?.Count ?? 0,
+                        timestamp = DateTime.UtcNow
+                    })
+                );
             }
-            
+            catch (Exception ex)
+            {
+                // Log error response
+                _logger.LogRawInbound("inbound_response_get_change_request_documents_error",
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        status = "error",
+                        error_message = ex.Message,
+                        timestamp = DateTime.UtcNow
+                    })
+                );
+
+                return BadRequest("Error processing request: " + ex.Message);
+            }
+
             return Ok(docs);
         }
 
@@ -162,6 +288,17 @@
             //[FromHeader] string authorization,
             [FromBody] DTOs.ChangeRequestUpdateRequest updateRequest)
         {
+            // Log inbound request
+            _logger.LogRawInbound("inbound_request_update_change_request",
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    boType,
+                    boId,
+                    source_ip = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                    timestamp = DateTime.UtcNow
+                })
+            );
+
             // Get's Ticket from Request
             string ticket = "";
             try
@@ -170,6 +307,16 @@
             }
             catch (Exception ex)
             {
+                // Log error response
+                _logger.LogRawInbound("inbound_response_update_change_request_auth_error",
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        status = "error",
+                        error_message = ex.Message,
+                        timestamp = DateTime.UtcNow
+                    })
+                );
+
                 // Return a 401 status code if auth fails.
                 return StatusCode(401, $"Error Creating/Updating Change Request: {ex.Message}");
             }
@@ -178,19 +325,33 @@
             try
             {
                 docs = await _crBusinessWorkspace.UpdateChangeRequestDataAsync(boType, boId, ticket, updateRequest);
+
+                // Log successful response
+                _logger.LogRawInbound("inbound_response_update_change_request_success",
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        status = "success",
+                        message = docs.Message,
+                        timestamp = DateTime.UtcNow
+                    })
+                );
             }
             catch (Exception ex)
             {
+                // Log error response
+                _logger.LogRawInbound("inbound_response_update_change_request_error",
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        status = "error",
+                        error_message = ex.Message,
+                        timestamp = DateTime.UtcNow
+                    })
+                );
+
                 return BadRequest("Error processing request: " + ex.Message);
             }
 
-            //var response = await _openTextService.UpdateChangeRequestDataAsync(boType, boId, ticket, updateRequest);
             return Ok(docs);
         }
     }
-
-
-
-
-
 }
