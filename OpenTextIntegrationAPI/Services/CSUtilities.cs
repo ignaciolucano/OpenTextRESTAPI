@@ -46,40 +46,30 @@ namespace OpenTextIntegrationAPI.Services
 
             var baseUrl = _settings.BaseUrl;
 
-            void AddTicketHeader(HttpRequestMessage req)
-            {
-                req.Headers.Remove("OTCSTICKET");
-                req.Headers.Add("OTCSTICKET", ticket);
-            }
-
             // Build URL for the classifications endpoint
             var wsChildNodesUrl = $"{baseUrl}/api/v1/nodes/{nodeId}/classifications";
             _logger.Log($"Classifications request URL: {wsChildNodesUrl}", LogLevel.DEBUG);
 
             // Create request with authentication ticket
-            var wsChildNodesRequest = new HttpRequestMessage(HttpMethod.Get, wsChildNodesUrl);
-            AddTicketHeader(wsChildNodesRequest);
+            using var request = new HttpRequestMessage(HttpMethod.Get, wsChildNodesUrl);
+            request.Headers.Add("OTCSTICKET", ticket);
 
             // Log request details
             _logger.LogRawApi("api_request_get_classifications",
                 JsonSerializer.Serialize(new { nodeId, url = wsChildNodesUrl }));
 
             // Send request
-            HttpResponseMessage wsChildNodesResponse;
+            HttpResponseMessage response;
             try
             {
                 _logger.Log("Sending classifications request", LogLevel.TRACE);
-                wsChildNodesResponse = await _httpClient.SendAsync(wsChildNodesRequest);
+                // Usar HttpCompletionOption.ResponseHeadersRead para optimizar la recepción de datos
+                response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
 
                 // Check for successful response
-                if (!wsChildNodesResponse.IsSuccessStatusCode)
+                if (!response.IsSuccessStatusCode)
                 {
-                    _logger.Log($"Classifications request failed with status: {wsChildNodesResponse.StatusCode}", LogLevel.WARNING);
-
-                    // Log error response if available
-                    var errorContent = await wsChildNodesResponse.Content.ReadAsStringAsync();
-                    _logger.LogRawApi("api_response_get_classifications_error", errorContent);
-
+                    _logger.Log($"Classifications request failed with status: {response.StatusCode}", LogLevel.WARNING);
                     return null;
                 }
             }
@@ -91,32 +81,26 @@ namespace OpenTextIntegrationAPI.Services
             }
 
             // Process response
-            var wsChildNodesJson = await wsChildNodesResponse.Content.ReadAsStringAsync();
-
-            // Log response
-            _logger.LogRawApi("api_response_get_classifications", wsChildNodesJson);
-
-            // Parse response to extract classification name
             try
             {
-                _logger.Log("Parsing classifications response", LogLevel.TRACE);
-                using (JsonDocument doc = JsonDocument.Parse(wsChildNodesJson))
-                {
-                    // Look for the "data" property
-                    if (doc.RootElement.TryGetProperty("data", out JsonElement results) &&
-                        results.ValueKind == JsonValueKind.Array &&
-                        results.GetArrayLength() > 0)
-                    {
-                        // Get the first result
-                        var firstResult = results[0];
+                // Usar método asíncrono para leer y parsear el contenido como stream
+                using var contentStream = await response.Content.ReadAsStreamAsync();
+                using var document = await JsonDocument.ParseAsync(contentStream);
 
-                        // Extract name property
-                        if (firstResult.TryGetProperty("name", out JsonElement idElement))
-                        {
-                            string classification = idElement.GetRawText().Trim('\"');
-                            _logger.Log($"Found classification: {classification}", LogLevel.DEBUG);
-                            return classification;
-                        }
+                // Look for the "data" property
+                if (document.RootElement.TryGetProperty("data", out JsonElement results) &&
+                    results.ValueKind == JsonValueKind.Array &&
+                    results.GetArrayLength() > 0)
+                {
+                    // Get the first result
+                    var firstResult = results[0];
+
+                    // Extract name property
+                    if (firstResult.TryGetProperty("name", out JsonElement nameElement))
+                    {
+                        string classification = nameElement.GetString();
+                        _logger.Log($"Found classification: {classification}", LogLevel.DEBUG);
+                        return classification;
                     }
                 }
 

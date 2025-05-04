@@ -558,7 +558,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
         /// <returns>List of DocumentInfo objects</returns>
         private async Task<List<DocumentInfo>> ParseDocumentsFromBWAsync(string json, string ticket, string baseUrl, string expDateCatId, string masterRequest, string? CatName = null)
         {
-            _logger.Log("Parsing documents from Business Workspace response JSON", LogLevel.DEBUG);
+            _logger.Log("Parsing documents from Business Workspace response JSON (no expDateCatId)", LogLevel.DEBUG);
 
             var docs = new List<DocumentInfo>();
             try
@@ -570,14 +570,16 @@ namespace OpenTextIntegrationAPI.ClassObjects
                     {
                         _logger.Log($"Found {results.GetArrayLength()} results to process", LogLevel.DEBUG);
 
+                        // Recolectar todas las carpetas primero
+                        var folderTasks = new List<Task<List<DocumentInfo>>>();
+                        var documentItems = new List<(JsonElement item, string id, string name, string mimeType)>();
+
                         foreach (var item in results.EnumerateArray())
                         {
                             long idInt = 0;
                             string id = "";
                             string? mimeType = null;
                             string name = null;
-                            string? expDate = null;
-                            string documentType = null;
 
                             // Extract properties from the item
                             if (item.TryGetProperty("data", out JsonElement data) &&
@@ -605,40 +607,19 @@ namespace OpenTextIntegrationAPI.ClassObjects
                                 mimeType = props.TryGetProperty("mime_type", out JsonElement mimeElem)
                                     ? mimeElem.GetString()
                                     : null;
-
-                                // Check for expiration date in categories
-                                if (data.TryGetProperty("categories", out JsonElement cats) &&
-                                    !string.IsNullOrEmpty(mimeType))
-                                {
-                                    foreach (var categ in cats.EnumerateArray())
-                                    {
-                                        if (categ.TryGetProperty($"{expDateCatId}_2", out JsonElement catElem))
-                                        {
-                                            expDate = catElem.GetString();
-                                            _logger.Log($"Found expiration date {expDate} for document {name}", LogLevel.TRACE);
-                                        }
-                                    }
-                                }
                             }
 
-                            // Process based on mime_type
+                            // Process based on mime_type - guardar documentos para procesar después y lanzar carpetas en paralelo
                             if (string.IsNullOrEmpty(mimeType))
                             {
-                                // For items with no mime_type (folders), recursively get contents
-                                _logger.Log($"Node {id} ({name}) has no mime_type, checking if it's a folder to process", LogLevel.DEBUG);
-
+                                // Procesar carpetas en paralelo
                                 if (string.Equals(masterRequest, "Master", StringComparison.OrdinalIgnoreCase))
                                 {
                                     if (!string.Equals(name, "Staging", StringComparison.OrdinalIgnoreCase))
                                     {
                                         _logger.Log($"Processing Master folder: {name} (NodeId: {id})", LogLevel.DEBUG);
-                                        List<DocumentInfo> additionalDocs = await GetNodeSubNodesAsync(id, ticket, expDateCatId, masterRequest, name);
-
-                                        if (additionalDocs != null)
-                                        {
-                                            _logger.Log($"Adding {additionalDocs.Count} documents from subfolder {name}", LogLevel.DEBUG);
-                                            docs.AddRange(additionalDocs);
-                                        }
+                                        // Crear tarea para procesar la carpeta
+                                        folderTasks.Add(GetNodeSubNodesAsync(id, ticket, expDateCatId, masterRequest, name));
                                     }
                                 }
                                 else if (string.Equals(masterRequest, "Request", StringComparison.OrdinalIgnoreCase))
@@ -646,45 +627,62 @@ namespace OpenTextIntegrationAPI.ClassObjects
                                     if (string.Equals(name, "Staging", StringComparison.OrdinalIgnoreCase))
                                     {
                                         _logger.Log($"Processing Request folder: {name} (NodeId: {id})", LogLevel.DEBUG);
-                                        List<DocumentInfo> additionalDocs = await GetNodeSubNodesAsync(id, ticket, expDateCatId, masterRequest, name);
-
-                                        if (additionalDocs != null)
-                                        {
-                                            _logger.Log($"Adding {additionalDocs.Count} documents from subfolder {name}", LogLevel.DEBUG);
-                                            docs.AddRange(additionalDocs);
-                                        }
+                                        // Crear tarea para procesar la carpeta
+                                        folderTasks.Add(GetNodeSubNodesAsync(id, ticket, expDateCatId, masterRequest, name));
                                     }
                                 }
                             }
                             else
                             {
-                                // For items with mime_type (documents), add directly
-                                _logger.Log($"Processing document: {name} (NodeId: {id})", LogLevel.DEBUG);
-
-                                // Get document classification
-                                string? DocTypeRule = await _csUtilities.GetClassifications(id, ticket);
-                                if (string.IsNullOrEmpty(DocTypeRule))
-                                {
-                                    documentType = CatName;
-                                    _logger.Log($"Using category name as document type: {documentType}", LogLevel.TRACE);
-                                }
-                                else
-                                {
-                                    documentType = DocTypeRule;
-                                    _logger.Log($"Using classification as document type: {documentType}", LogLevel.TRACE);
-                                }
-
-                                // Add document to result list
-                                docs.Add(new DocumentInfo
-                                {
-                                    NodeId = id,
-                                    Name = name,
-                                    DocumentType = documentType,
-                                    ExpirationDate = expDate
-                                });
-
-                                _logger.Log($"Added document: {name} with type: {documentType}", LogLevel.DEBUG);
+                                // Guardar documentos para procesar después
+                                documentItems.Add((item, id, name, mimeType));
                             }
+                        }
+
+                        // Esperar a que todas las carpetas terminen de procesarse en paralelo
+                        if (folderTasks.Count > 0)
+                        {
+                            var folderResults = await Task.WhenAll(folderTasks);
+                            foreach (var folderDocs in folderResults)
+                            {
+                                if (folderDocs != null)
+                                {
+                                    _logger.Log($"Adding {folderDocs.Count} documents from subfolder", LogLevel.DEBUG);
+                                    docs.AddRange(folderDocs);
+                                }
+                            }
+                        }
+
+                        // Ahora procesar los documentos (mantenemos el procesamiento secuencial para evitar problemas)
+                        foreach (var (item, id, name, mimeType) in documentItems)
+                        {
+                            _logger.Log($"Processing document: {name} (NodeId: {id})", LogLevel.DEBUG);
+
+                            // Get document classification
+                            string? DocTypeRule = await _csUtilities.GetClassifications(id, ticket);
+                            string documentType;
+
+                            if (string.IsNullOrEmpty(DocTypeRule))
+                            {
+                                documentType = CatName;
+                                _logger.Log($"Using category name as document type: {documentType}", LogLevel.TRACE);
+                            }
+                            else
+                            {
+                                documentType = DocTypeRule;
+                                _logger.Log($"Using classification as document type: {documentType}", LogLevel.TRACE);
+                            }
+
+                            // Add document to result list
+                            docs.Add(new DocumentInfo
+                            {
+                                NodeId = id,
+                                Name = name,
+                                DocumentType = documentType,
+                                ExpirationDate = null
+                            });
+
+                            _logger.Log($"Added document: {name} with type: {documentType}", LogLevel.DEBUG);
                         }
                     }
                 }
