@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.OpenApi.Models;
@@ -10,6 +11,13 @@ using OpenTextIntegrationAPI.Models;
 using OpenTextIntegrationAPI.Models.Filter;
 using OpenTextIntegrationAPI.ClassObjects;
 using OpenTextIntegrationAPI.Services;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 // Program.cs - Main entry point for the OpenText Integration API application
 // Handles application configuration, dependency injection, and middleware setup
@@ -147,17 +155,38 @@ logger.Log("Configuring middleware and request pipeline...", LogLevel.DEBUG);
 // MIDDLEWARE CONFIGURATION
 //
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+// Configure the request logging middleware to capture request bodies
+logger.Log("Enabling request logging middleware", LogLevel.DEBUG);
+app.UseMiddleware<RequestLoggingMiddleware>();
+
+// Configure the base path when running under an IIS virtual directory
+// This allows the application to work correctly when hosted at /integrationRESTAPI
+if (!app.Environment.IsDevelopment())
 {
-    logger.Log("Enabling Swagger documentation middleware", LogLevel.DEBUG);
-    app.UseSwagger();
-    app.UseSwaggerUI(options =>
-    {
-        options.SwaggerEndpoint("/swagger/v1/swagger.json", "OpenText Integration API v1");
-        options.RoutePrefix = "swagger"; // Swagger UI disponible en /swagger
-    });
+    logger.Log("Configuring application path base for IIS virtual directory", LogLevel.DEBUG);
+    app.UsePathBase("/integrationRESTAPI");
 }
+
+// Configure Swagger middleware for all environments
+logger.Log("Enabling Swagger documentation middleware", LogLevel.DEBUG);
+app.UseSwagger();
+app.UseSwaggerUI(options =>
+{
+    // Configure SwaggerEndpoint based on environment
+    if (app.Environment.IsDevelopment())
+    {
+        // In development, use the standard path
+        logger.Log("Configuring Swagger endpoint for development environment", LogLevel.DEBUG);
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "OpenText Integration API v1");
+    }
+    else
+    {
+        // In QAS/production, use the absolute path with virtual directory prefix
+        logger.Log("Configuring Swagger endpoint for non-development environment", LogLevel.DEBUG);
+        options.SwaggerEndpoint("/integrationRESTAPI/swagger/v1/swagger.json", "OpenText Integration API v1");
+    }
+    options.RoutePrefix = "swagger"; // Swagger UI available at /swagger
+});
 
 // Enable HTTPS redirection for security (only if not in development)
 if (!app.Environment.IsDevelopment())
@@ -165,6 +194,10 @@ if (!app.Environment.IsDevelopment())
     logger.Log("Enabling HTTPS redirection middleware", LogLevel.DEBUG);
     app.UseHttpsRedirection();
 }
+
+// Enable routing middleware for request routing
+logger.Log("Enabling routing middleware", LogLevel.DEBUG);
+app.UseRouting();
 
 // Enable authentication and authorization middleware for security
 logger.Log("Enabling authentication and authorization middleware", LogLevel.DEBUG);
@@ -179,3 +212,70 @@ app.MapControllers();
 logger.Log("Application initialization complete", LogLevel.INFO);
 logger.Log("Application is running and listening for requests", LogLevel.INFO);
 app.Run();
+
+//
+// MIDDLEWARE CLASSES (must be defined after top-level statements)
+//
+
+/// <summary>
+/// Middleware for logging all incoming HTTP requests including their body content
+/// </summary>
+public class RequestLoggingMiddleware
+{
+    private readonly RequestDelegate _next;
+    private readonly ILogService _logger;
+
+    /// <summary>
+    /// Initializes a new instance of the RequestLoggingMiddleware
+    /// </summary>
+    /// <param name="next">The next middleware in the pipeline</param>
+    /// <param name="logger">Logging service for saving request information</param>
+    public RequestLoggingMiddleware(RequestDelegate next, ILogService logger)
+    {
+        _next = next;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Processes an HTTP request by logging it and then invoking the next middleware
+    /// </summary>
+    /// <param name="context">The HTTP context for the request</param>
+    /// <returns>A task that represents the completion of request processing</returns>
+    public async Task InvokeAsync(HttpContext context)
+    {
+        // Enable buffering to allow reading the request body multiple times
+        context.Request.EnableBuffering();
+
+        // Read the request body
+        string requestBody = string.Empty;
+        using (var reader = new StreamReader(
+            context.Request.Body,
+            encoding: Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: false,
+            leaveOpen: true))
+        {
+            requestBody = await reader.ReadToEndAsync();
+            context.Request.Body.Position = 0;  // Rewind the stream for subsequent middleware
+        }
+
+        // Create an object containing all relevant request information
+        var requestInfo = new
+        {
+            Method = context.Request.Method,
+            Path = context.Request.Path,
+            QueryString = context.Request.QueryString.ToString(),
+            Headers = context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString()),
+            Body = requestBody
+        };
+
+        // Generate a unique identifier for this request log
+        string requestLogId = $"inbound_request_{Guid.NewGuid():N}";
+
+        // Log the complete request information including body
+        _logger.LogRawInbound(requestLogId,
+            JsonSerializer.Serialize(requestInfo, new JsonSerializerOptions { WriteIndented = true }));
+
+        // Continue to the next middleware in the pipeline
+        await _next(context);
+    }
+}

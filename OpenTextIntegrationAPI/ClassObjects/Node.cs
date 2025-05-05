@@ -184,6 +184,13 @@ namespace OpenTextIntegrationAPI.ClassObjects
         /// <param name="ticket">Authentication ticket (OTCSTICKET)</param>
         /// <returns>NodeResponse containing node information and content</returns>
         /// <exception cref="Exception">Thrown when authentication fails or node cannot be retrieved</exception>
+        /// <summary>
+        /// Retrieves a node by its ID, including its content.
+        /// </summary>
+        /// <param name="nodeId">ID of the node to retrieve</param>
+        /// <param name="ticket">Authentication ticket (OTCSTICKET)</param>
+        /// <returns>NodeResponse containing node information and content</returns>
+        /// <exception cref="Exception">Thrown when authentication fails or node cannot be retrieved</exception>
         public async Task<NodeResponse?> GetNodeByIdAsync(int nodeId, string ticket)
         {
             _logger.Log($"Starting GetNodeByIdAsync with nodeId={nodeId}", LogLevel.DEBUG);
@@ -220,59 +227,78 @@ namespace OpenTextIntegrationAPI.ClassObjects
                 _logger.Log("Sending request for node metadata", LogLevel.TRACE);
                 response = await _httpClient.SendAsync(requestMessage);
 
+                // Check if response is successful
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.Log($"Failed to get node metadata: {response.StatusCode} - {errorContent}", LogLevel.ERROR);
+                    throw new Exception($"Failed to get node metadata: {response.StatusCode} - {errorContent}");
+                }
+
                 // Log raw API response
                 var wsNodesInfoJson = await response.Content.ReadAsStringAsync();
                 _logger.LogRawApi("api_response_get_node", wsNodesInfoJson);
 
-                // Parse node properties from response
+                // Parse node properties from response with improved error handling
                 try
                 {
                     _logger.Log("Parsing node properties from response", LogLevel.TRACE);
                     using (JsonDocument doc = JsonDocument.Parse(wsNodesInfoJson))
                     {
-                        // Look for the "results" property
-                        if (doc.RootElement.TryGetProperty("results", out JsonElement results) &&
-                            results.ValueKind == JsonValueKind.Array &&
-                            results.GetArrayLength() > 0)
+                        JsonElement root = doc.RootElement;
+
+                        // Extract properties directly from the root or navigate to the correct location
+                        // The structure might vary depending on the API
+                        if (root.TryGetProperty("data", out JsonElement data) &&
+                            data.ValueKind == JsonValueKind.Object)
                         {
-                            // Get the first result
-                            var firstResult = results[0];
+                            // Extract properties from data object
+                            retNodeId = data.TryGetProperty("id", out JsonElement idElem) ?
+                                idElem.GetInt32() : nodeId;
 
-                            // Look for the "data" property within the first result
-                            if (firstResult.TryGetProperty("data", out JsonElement data) &&
-                                data.ValueKind == JsonValueKind.Array &&
-                                data.GetArrayLength() > 0)
+                            retFileName = data.TryGetProperty("name", out JsonElement nameElem) ?
+                                nameElem.GetString() ?? "" : "";
+
+                            retNodeType = data.TryGetProperty("type", out JsonElement typeElem) ?
+                                typeElem.GetInt32() : 0;
+
+                            retNodeTypeName = data.TryGetProperty("type_name", out JsonElement typeNameElem) ?
+                                typeNameElem.GetString() ?? "" : "";
+                        }
+                        // If not found in that structure, try alternative paths
+                        else if (root.TryGetProperty("results", out JsonElement results) )
+                        {
+                            //var firstResult = results[0];
+                            if (results.TryGetProperty("data", out JsonElement dataArray) &&
+                                dataArray.ValueKind == JsonValueKind.Object)
                             {
-                                // Get the first element from the "data" array
-                                var firstData = data[0];
-
-                                // Look for the "properties" property within the first data element
-                                if (firstData.TryGetProperty("properties", out JsonElement properties))
+                                if (dataArray.TryGetProperty("properties", out JsonElement propertiesArray) &&
+                                propertiesArray.ValueKind == JsonValueKind.Object)
                                 {
-                                    // Retrieve the id, type, and type_name values from properties
-                                    retNodeId = properties.TryGetProperty("id", out JsonElement idElem)
-                                        ? idElem.GetInt32()
-                                        : 0;
-                                    retNodeType = properties.TryGetProperty("type", out JsonElement typeElem)
-                                        ? typeElem.GetInt32()
-                                        : 0;
-                                    retNodeTypeName = properties.TryGetProperty("type_name", out JsonElement typeNameElem)
-                                        ? typeNameElem.GetString()
-                                        : null;
-                                    retFileName = properties.TryGetProperty("file_name", out JsonElement fileNameElem)
-                                       ? fileNameElem.GetString()
-                                       : null;
+                                    // Extract properties from this path
+                                    retNodeId = propertiesArray.TryGetProperty("id", out JsonElement idElem) ?
+                                    idElem.GetInt32() : nodeId;
 
-                                    _logger.Log($"Parsed node properties: ID={retNodeId}, Type={retNodeType}, TypeName={retNodeTypeName}", LogLevel.DEBUG);
+                                    retFileName = propertiesArray.TryGetProperty("name", out JsonElement nameElem) ?
+                                        nameElem.GetString() ?? "" : "";
+
+                                    retNodeType = propertiesArray.TryGetProperty("type", out JsonElement typeElem) ?
+                                        typeElem.GetInt32() : 0;
+
+                                    retNodeTypeName = propertiesArray.TryGetProperty("type_name", out JsonElement typeNameElem) ?
+                                        typeNameElem.GetString() ?? "" : "";
                                 }
                             }
                         }
+
+                        _logger.Log($"Parsed node properties: ID={retNodeId}, Name={retFileName}, Type={retNodeType}, TypeName={retNodeTypeName}", LogLevel.DEBUG);
                     }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogException(ex, LogLevel.ERROR);
                     _logger.Log($"Exception in parsing node properties: {ex.Message}", LogLevel.ERROR);
+                    // Continue with default values rather than failing
                 }
             }
             catch (Exception ex)
@@ -280,6 +306,23 @@ namespace OpenTextIntegrationAPI.ClassObjects
                 _logger.LogException(ex, LogLevel.ERROR);
                 throw;
             }
+
+            string? DocTypeRule = await _csUtilities.GetClassifications(retNodeId.ToString(), ticket);
+            string documentType;
+
+            if (string.IsNullOrEmpty(DocTypeRule))
+            {
+                retNodeTypeName = ""; // Folder
+                retNodeType = 0;
+                _logger.Log($"Using parent folder name as document type: ", LogLevel.TRACE);
+            }
+            else
+            {
+                retNodeTypeName = DocTypeRule;
+                retNodeType = 0;
+                _logger.Log($"Using classification as document type: {retNodeTypeName}", LogLevel.TRACE);
+            }
+            
 
             // Build URL for getting node content
             url = $"{baseUrl}/api/v2/nodes/{nodeId}/content?suppress_response_codes";
@@ -293,7 +336,6 @@ namespace OpenTextIntegrationAPI.ClassObjects
             _logger.LogRawApi("api_request_get_node_content", JsonSerializer.Serialize(new { nodeId, url }));
 
             // Send request to get node content
-            response = null;
             try
             {
                 _logger.Log("Sending request for node content", LogLevel.TRACE);
@@ -318,7 +360,6 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
             // Read node content as byte array
             byte[] contentBytes;
-            string contentString = await response.Content.ReadAsStringAsync();
             try
             {
                 contentBytes = await response.Content.ReadAsByteArrayAsync();
