@@ -47,7 +47,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
         /// <returns>True if deletion was successful</returns>
         /// <exception cref="ArgumentException">Thrown when ticket is invalid</exception>
         /// <exception cref="Exception">Thrown when node is not in a Change Request or deletion fails</exception>
-        public async Task<bool> DeleteNodeAsync(string nodeId, string ticket)
+        public async Task<bool> DeleteNodeAsync(string nodeId, string ticket, string? asset = "")
         {
             _logger.Log($"Starting DeleteNodeAsync for nodeId: {nodeId}", LogLevel.INFO);
 
@@ -58,12 +58,18 @@ namespace OpenTextIntegrationAPI.ClassObjects
                 throw new ArgumentException("OTCS ticket must be provided.", nameof(ticket));
             }
 
-            // Check that the Node is on a Change Request
-            _logger.Log($"Verifying node {nodeId} is in a Change Request", LogLevel.DEBUG);
-            if (await GetBWforNode(_httpClient, nodeId, ticket) == false)
+            // Check that the Node is an asset from MDG
+            _logger.Log($"Verifying node {nodeId} is an MDG Asset", LogLevel.DEBUG);
+            if (asset != "MDG")
             {
-                _logger.Log($"Node {nodeId} is not in a Change Request workspace", LogLevel.ERROR);
-                throw new Exception("The node is not in a Change Request");
+                _logger.Log($"Node {nodeId} is not an MDG Asset", LogLevel.DEBUG);
+                // Check that the Node is on a Change Request
+                _logger.Log($"Verifying node {nodeId} is in a Change Request", LogLevel.DEBUG);
+                if (await GetBWforNode(_httpClient, nodeId, ticket) == false)
+                {
+                    _logger.Log($"Node {nodeId} is not in a Change Request workspace", LogLevel.ERROR);
+                    throw new Exception("The node is not in a Change Request");
+                }
             }
 
             // Build the URL for DELETE /v1/nodes/{id}
@@ -452,6 +458,53 @@ namespace OpenTextIntegrationAPI.ClassObjects
             _logger.Log($"Found {documents.Count} documents in nodeId={nodeId}", LogLevel.INFO);
             return documents;
         }
+
+        /// <summary>
+/// Finds a background image node by its display name.
+/// </summary>
+/// <param name="parentFolderId">ID of the parent folder to search in</param>
+/// <param name="displayName">Display name of the background image to find</param>
+/// <param name="ticket">Authentication ticket (OTCSTICKET)</param>
+/// <returns>Document info for the background image, or null if not found</returns>
+public async Task<DocumentInfo> FindBackgroundImageByNameAsync(string parentFolderId, string displayName, string ticket)
+{
+    _logger.Log($"Finding background image with name: {displayName} in folder: {parentFolderId}", LogLevel.DEBUG);
+    
+    try
+    {
+        // Get all nodes in the parent folder
+        var nodesList = await GetNodeSubNodesAsync(parentFolderId, ticket, "Request");
+        
+        if (nodesList == null || nodesList.Count == 0)
+        {
+            _logger.Log("No nodes found in the folder", LogLevel.DEBUG);
+            return null;
+        }
+        
+        // Find node with the matching name (ignoring case and extension)
+        var backgroundNode = nodesList.FirstOrDefault(n => 
+            Path.GetFileNameWithoutExtension(n.Name).Equals(
+                Path.GetFileNameWithoutExtension(displayName), 
+                StringComparison.OrdinalIgnoreCase));
+        
+        if (backgroundNode != null)
+        {
+            _logger.Log($"Found background image: {backgroundNode.Name} with ID: {backgroundNode.NodeId}", LogLevel.DEBUG);
+        }
+        else
+        {
+            _logger.Log($"Background image with name '{displayName}' not found", LogLevel.DEBUG);
+        }
+        
+        return backgroundNode;
+    }
+    catch (Exception ex)
+    {
+        _logger.LogException(ex, LogLevel.ERROR);
+        _logger.Log($"Error finding background image: {ex.Message}", LogLevel.ERROR);
+        return null;
+    }
+}
 
         /// <summary>
         /// Gets all subnodes (documents) from a node without expiration date filtering.
@@ -1140,6 +1193,111 @@ namespace OpenTextIntegrationAPI.ClassObjects
             {
                 _logger.LogException(ex, LogLevel.ERROR);
                 throw new ArgumentException("Create folder operation failed.", nameof(ticket));
+            }
+        }
+        /// <summary>
+        /// Creates a new folder for SimpleMDG assets in OpenText Content Server.
+        /// </summary>
+        /// <param name="parentNodeId">ID of the parent node</param>
+        /// <param name="folderName">Name for the new folder</param>
+        /// <param name="ticket">Authentication ticket (OTCSTICKET)</param>
+        /// <returns>ID of the newly created folder</returns>
+        /// <exception cref="ArgumentException">Thrown when ticket is invalid or folder creation fails</exception>
+        public async Task<string> CreateSimpleMDGFolderAsync(string parentNodeId, string folderName, string ticket)
+        {
+            _logger.Log($"Starting CreateSimpleMDGFolderAsync: parentNodeId={parentNodeId}, folderName={folderName}", LogLevel.INFO);
+
+            // Validate authentication ticket
+            if (string.IsNullOrWhiteSpace(ticket))
+            {
+                _logger.Log("OTCS ticket is missing or empty", LogLevel.ERROR);
+                throw new ArgumentException("OTCS ticket must be provided.", nameof(ticket));
+            }
+
+            // Build URL for folder creation API call
+            var baseUrl = _settings.BaseUrl;
+            var createUrl = $"{baseUrl}/api/v2/nodes";
+            _logger.Log($"Create folder URL: {createUrl}", LogLevel.DEBUG);
+
+            // Prepare folder creation request body
+            var folderData = new
+            {
+                type = "0",
+                parent_id = parentNodeId,
+                name = folderName
+            };
+
+            // Serialize request to JSON
+            string folderDataJson = JsonSerializer.Serialize(folderData);
+            _logger.Log($"Create folder request body: {folderDataJson}", LogLevel.DEBUG);
+
+            // Log raw API request
+            _logger.LogRawApi("api_request_create_folder", folderDataJson);
+
+            // Create request with authentication ticket
+            using var requestMessage = new HttpRequestMessage(HttpMethod.Post, createUrl);
+            requestMessage.Headers.Add("OTCSTICKET", ticket);
+
+            // Build the multipart/form-data content
+            using var formDataContent = new MultipartFormDataContent();
+
+            // Part A: "body" part containing the JSON string
+            var bodyContent = new StringContent(folderDataJson, Encoding.UTF8, "text/plain");
+            formDataContent.Add(bodyContent, "body");
+
+            // Attach the multipart content to the request
+            requestMessage.Content = formDataContent;
+
+            HttpResponseMessage response;
+            try
+            {
+                // Send the request
+                _logger.Log($"Sending request to create folder '{folderName}' under node {parentNodeId}", LogLevel.DEBUG);
+                response = await _httpClient.SendAsync(requestMessage);
+
+                // Read response content
+                var responseContent = await response.Content.ReadAsStringAsync();
+
+                // Log raw API response
+                _logger.LogRawApi("api_response_create_folder", responseContent);
+
+                // Check for successful response
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.Log($"Failed to create folder: {response.StatusCode} - {responseContent}", LogLevel.ERROR);
+                    throw new Exception($"Error Creating Folder {response.StatusCode}: {responseContent}");
+                }
+
+                // Parse folder creation response to extract the ID
+                try
+                {
+                    using var jsonDoc = JsonDocument.Parse(responseContent);
+
+                    if (jsonDoc.RootElement.TryGetProperty("results", out JsonElement resultsElem) &&
+                        resultsElem.TryGetProperty("data", out JsonElement dataElem) &&
+                        dataElem.TryGetProperty("properties", out JsonElement propsElem) &&
+                        propsElem.TryGetProperty("id", out JsonElement idElem))
+                    {
+                        string newFolderId = idElem.GetInt32().ToString();
+                        _logger.Log($"Folder '{folderName}' created successfully with ID: {newFolderId}", LogLevel.INFO);
+                        return newFolderId;
+                    }
+                    else
+                    {
+                        _logger.Log("Could not find folder ID in response", LogLevel.ERROR);
+                        throw new Exception("Could not extract folder ID from response");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogException(ex, LogLevel.ERROR);
+                    throw new Exception($"Error parsing folder creation response: {ex.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogException(ex, LogLevel.ERROR);
+                throw new Exception($"Create folder operation failed: {ex.Message}");
             }
         }
     }

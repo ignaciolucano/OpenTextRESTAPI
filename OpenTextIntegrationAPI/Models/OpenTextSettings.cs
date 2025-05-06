@@ -22,6 +22,8 @@ namespace OpenTextIntegrationAPI.Models
         public string uNameWTIBUS2250 { get; set; }
         public string ChangeRequestWSKtype { get; set; }
         public bool CreateFolderOnMove { get; set; }
+        public string RootFolderId { get; set; }
+        public string AssetsRootFolderId { get; set; }
 
         public Dictionary<string, string> DocumentTypeMapping { get; set; }
 
