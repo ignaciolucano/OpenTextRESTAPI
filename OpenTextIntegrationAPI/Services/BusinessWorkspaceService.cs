@@ -288,7 +288,7 @@ namespace OpenTextIntegrationAPI.Services
         /// <param name="updateRequest">Request containing CR data</param>
         /// <returns>Response containing the created workspace details</returns>
         /// <exception cref="Exception">Thrown when workspace creation fails</exception>
-        public async Task<BusinessWorkspaceResponse?> CreateBusinessWorkspaceCRAsync(string boType, string boId, string ticket, DTOs.ChangeRequestUpdateRequest updateRequest)
+        public async Task<string?> CreateBusinessWorkspaceCRAsync(string boType, string boId, string ticket, DTOs.ChangeRequestUpdateRequest updateRequest)
         {
             _logger.Log($"Starting CreateBusinessWorkspaceCRAsync for BO: {boType}/{boId}", LogLevel.INFO);
 
@@ -540,7 +540,7 @@ namespace OpenTextIntegrationAPI.Services
                 }
 
                 _logger.Log($"Successfully created CR Business Workspace for {boType}/{boId}", LogLevel.INFO);
-                return null;
+                return newBoId;
             }
             catch (Exception ex)
             {

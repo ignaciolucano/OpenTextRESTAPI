@@ -445,11 +445,11 @@ namespace OpenTextIntegrationAPI.ClassObjects
             {
                 // If workspace not found, create new one
                 _logger.Log("[UpdateChangeRequestDataAsync] Workspace not found. Creating new one...", LogLevel.INFO);
-                wsResponse = await workspaceService.CreateBusinessWorkspaceCRAsync(boType, boId, ticket, updateRequest);
-                if (wsResponse != null && wsResponse.results.Count > 0)
+                var wsCreateResponse = await workspaceService.CreateBusinessWorkspaceCRAsync(boType, boId, ticket, updateRequest);
+                if (wsCreateResponse != null)
                 {
                     _logger.Log("[UpdateChangeRequestDataAsync] New workspace created successfully", LogLevel.INFO);
-                    return new ChangeRequestUpdateResponse { Message = "(OK) Workspace Created" };
+                    return new ChangeRequestUpdateResponse { Message = $"(OK) Workspace Created: {wsCreateResponse}" };
                 }
                 else
                 {
