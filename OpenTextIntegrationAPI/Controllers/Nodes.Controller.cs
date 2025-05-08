@@ -183,9 +183,9 @@ namespace OpenTextIntegrationAPI.Controllers
         /// <returns>HTTP response with created node information</returns>
         [HttpPost("create")]
         [SwaggerOperation(
-            Summary = "Create a new document node",
-            Description = "Creates a new document in the business workspace associated with the specified business object"
-        )]
+    Summary = "Create a new document node",
+    Description = "Creates a new document in the business workspace associated with the specified business object"
+)]
         [SwaggerResponse(200, "OK", typeof(CreateDocumentNodeResponse))]
         [SwaggerResponse(400, "Invalid parameter value")]
         [SwaggerResponse(401, "Authentication Required")]
@@ -193,12 +193,12 @@ namespace OpenTextIntegrationAPI.Controllers
         [SwaggerResponse(500, "Internal Error. Contact API Admin")]
         [Produces("application/json")]
         public async Task<IActionResult> CreateDocumentNodeAsync(
-            string boType,
-            string boId,
-            string docName,
-            IFormFile file,
-            DateTime? expirationDate = null,
-            string documentType = null)
+    [FromQuery] string boType,
+    [FromQuery] string boId,
+    [FromQuery] string docName,
+    [FromForm] IFormFile file,
+    [FromQuery] DateTime? expirationDate = null,
+    [FromQuery] string documentType = null)
         {
             _logger.Log($"CreateDocumentNodeAsync called for BO: {boType}/{boId}, Document: {docName}", LogLevel.INFO);
 

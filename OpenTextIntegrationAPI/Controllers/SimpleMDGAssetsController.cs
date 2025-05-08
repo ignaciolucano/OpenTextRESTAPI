@@ -1230,31 +1230,6 @@ namespace OpenTextIntegrationAPI.Controllers
             return globalNodeId;
         }
 
-        /// <summary>
-        /// Ensures the Transaction Asset sets folder structure exists.
-        /// </summary>
-        /// <param name="ticket">Authentication ticket</param>
-        /// <returns>Node ID of the Transaction Asset sets folder</returns>
-        private async Task<string> EnsureTransactionAssetsStructureAsync(string ticket)
-        {
-            _logger.Log("Ensuring Transaction Asset sets folder structure", LogLevel.DEBUG);
-
-            // Find or create "Transaction Asset sets" folder in root
-            var baseUrl = _settings.BaseUrl;
-            var enterpriseWsId = _settings.RootFolderId;
-
-            // First try to find the folder
-            string? transactionAssetsNodeId = await FindFolderAsync(enterpriseWsId, "Transaction Asset sets", ticket);
-
-            if (transactionAssetsNodeId == null)
-            {
-                // Create folder if it doesn't exist
-                _logger.Log("'Transaction Asset sets' folder not found, creating...", LogLevel.DEBUG);
-                transactionAssetsNodeId = (await _csNode.CreateFolderAsync(enterpriseWsId, "Transaction Asset sets", ticket)).ToString();
-            }
-
-            return transactionAssetsNodeId;
-        }
 
         /// <summary>
         /// Ensures a specific folder exists within a parent node.
