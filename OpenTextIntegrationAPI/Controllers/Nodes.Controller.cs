@@ -181,11 +181,13 @@ namespace OpenTextIntegrationAPI.Controllers
         /// <param name="expirationDate">Optional expiration date for the document</param>
         /// <param name="documentType">Document type/classification</param>
         /// <returns>HTTP response with created node information</returns>
+        [HttpPost("")]
         [HttpPost("create")]
+        //[Consumes("multipart/form-data")]
         [SwaggerOperation(
-    Summary = "Create a new document node",
-    Description = "Creates a new document in the business workspace associated with the specified business object"
-)]
+        Summary = "Create a new document node",
+        Description = "Creates a new document in the business workspace associated with the specified business object"
+    )]
         [SwaggerResponse(200, "OK", typeof(CreateDocumentNodeResponse))]
         [SwaggerResponse(400, "Invalid parameter value")]
         [SwaggerResponse(401, "Authentication Required")]
@@ -193,14 +195,38 @@ namespace OpenTextIntegrationAPI.Controllers
         [SwaggerResponse(500, "Internal Error. Contact API Admin")]
         [Produces("application/json")]
         public async Task<IActionResult> CreateDocumentNodeAsync(
-    [FromQuery] string boType,
-    [FromQuery] string boId,
-    [FromQuery] string docName,
-    [FromForm] IFormFile file,
-    [FromQuery] DateTime? expirationDate = null,
-    [FromQuery] string documentType = null)
+        [FromQuery(Name = "boType")] string boType,
+        [FromQuery(Name = "bold")] string boId,       // <-- bind the typo
+        [FromQuery(Name = "docName")] string docName,
+        [FromForm(Name = "file")] IFormFile file,
+        [FromQuery(Name = "expirationDate")] DateTime? expirationDate = null,
+        [FromQuery(Name = "documentType")] string documentType = null)
         {
             _logger.Log($"CreateDocumentNodeAsync called for BO: {boType}/{boId}, Document: {docName}", LogLevel.INFO);
+
+            // 1) Read all query‐string values by hand:
+            var q = Request.Query;
+            boType = q.TryGetValue("boType", out var t) ? t.ToString() : null;
+            boId = q.TryGetValue("boId", out var id) ? id.ToString() : null;
+            docName = q.TryGetValue("docName", out var d) ? d.ToString() : null;
+            documentType = q.TryGetValue("documentType", out var dt) ? dt.ToString() : null;
+            
+            if (q.TryGetValue("expirationDate", out var ed) &&
+                DateTime.TryParse(ed, out var tmpDate))
+            {
+                expirationDate = tmpDate;
+            }
+
+            // 2) Read the form (and file) yourself:
+            if (!Request.HasFormContentType)
+                return BadRequest("Expected multipart/form-data");
+
+            var form = await Request.ReadFormAsync();
+            // if your part name is "file"
+            file = form.Files.GetFile("file");
+            if (file == null || file.Length == 0)
+                return BadRequest("Missing file upload");
+
 
             // Get ticket from Request
             string ticket = "";

@@ -53,10 +53,18 @@ namespace OpenTextIntegrationAPI.Utilities
             // Check if header is missing or empty
             if (string.IsNullOrWhiteSpace(authorizationHeader))
             {
-                _logger.Log("No Authorization header found in request", LogLevel.WARNING);
+                _logger.Log("No Authorization header found in request as Authorization, check OTCSTICKET", LogLevel.WARNING);
 
-                // In development, automatically create a ticket
-                if (_environment.IsDevelopment())
+                // Retrieve the Authorization header value as OTCSTICKET
+                string authorizationOTCSHeader = request.Headers["OTCSTICKET"].FirstOrDefault();
+
+                if (!string.IsNullOrWhiteSpace(authorizationOTCSHeader))
+                {
+                    authorizationHeader = authorizationOTCSHeader;
+                } else { 
+
+                    // In development, automatically create a ticket
+                    if (_environment.IsDevelopment())
                 {
                     _logger.Log("Development environment detected - generating internal authentication ticket", LogLevel.INFO);
 
@@ -89,6 +97,7 @@ namespace OpenTextIntegrationAPI.Utilities
                     // In production, require a valid token
                     _logger.Log("Production environment requires valid Authorization header", LogLevel.ERROR);
                     throw new ArgumentException("No Bearer token found in the Authorization header.");
+                }
                 }
             }
             else
