@@ -181,7 +181,6 @@ namespace OpenTextIntegrationAPI.Controllers
         /// <param name="expirationDate">Optional expiration date for the document</param>
         /// <param name="documentType">Document type/classification</param>
         /// <returns>HTTP response with created node information</returns>
-        [HttpPost("")]
         [HttpPost("create")]
         //[Consumes("multipart/form-data")]
         [SwaggerOperation(
@@ -196,36 +195,79 @@ namespace OpenTextIntegrationAPI.Controllers
         [Produces("application/json")]
         public async Task<IActionResult> CreateDocumentNodeAsync(
         [FromQuery(Name = "boType")] string boType,
-        [FromQuery(Name = "bold")] string boId,       // <-- bind the typo
+        [FromQuery(Name = "boId")] string boId,
         [FromQuery(Name = "docName")] string docName,
-        [FromForm(Name = "file")] IFormFile file,
+        IFormFile file,
         [FromQuery(Name = "expirationDate")] DateTime? expirationDate = null,
         [FromQuery(Name = "documentType")] string documentType = null)
         {
             _logger.Log($"CreateDocumentNodeAsync called for BO: {boType}/{boId}, Document: {docName}", LogLevel.INFO);
 
-            // 1) Read all query‐string values by hand:
-            var q = Request.Query;
-            boType = q.TryGetValue("boType", out var t) ? t.ToString() : null;
-            boId = q.TryGetValue("boId", out var id) ? id.ToString() : null;
-            docName = q.TryGetValue("docName", out var d) ? d.ToString() : null;
-            documentType = q.TryGetValue("documentType", out var dt) ? dt.ToString() : null;
-            
-            if (q.TryGetValue("expirationDate", out var ed) &&
-                DateTime.TryParse(ed, out var tmpDate))
+            _logger.Log("---- ENTER CreateDocumentNodeAsync ----", LogLevel.DEBUG);
+
+            _logger.Log($"ContentType: {Request.ContentType}", LogLevel.DEBUG);
+            _logger.Log($"HasFormContentType: {Request.HasFormContentType}", LogLevel.DEBUG);
+
+            // 1) Habilitamos buffering antes de leer
+            Request.EnableBuffering();
+            _logger.Log("Enabled buffering, Body.Position = " + Request.Body.Position, LogLevel.DEBUG);
+
+            IFormCollection form = null;
+            try
             {
-                expirationDate = tmpDate;
+                _logger.Log("About to call ReadFormAsync()", LogLevel.DEBUG);
+
+                // si esto se queda colgado, al menos verás en el log dónde
+                form = await Request.ReadFormAsync();
+
+                _logger.Log("ReadFormAsync() completed", LogLevel.DEBUG);
+                _logger.Log($"Form keys: {string.Join(", ", form.Keys)}", LogLevel.DEBUG);
+                _logger.Log($"Files count: {form.Files.Count}", LogLevel.DEBUG);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogException(ex, LogLevel.ERROR);
+                _logger.Log("Exception during ReadFormAsync(): " + ex.Message, LogLevel.ERROR);
+                return StatusCode(500, $"Error reading form: {ex.Message}");
+            }
+            finally
+            {
+                // rebobinamos para que el binder de ASP.NET pueda volver a leer si lo necesita
+                Request.Body.Position = 0;
+                _logger.Log("After finally, Body.Position reset to 0", LogLevel.DEBUG);
             }
 
-            // 2) Read the form (and file) yourself:
-            if (!Request.HasFormContentType)
-                return BadRequest("Expected multipart/form-data");
+            // Ahora ya sabes que el form está bien leído
+            if (form != null)
+            {
+                // FirstOrDefault() so we don't accidentally assign a StringValues array
+                boType = boType ?? form["boType"].FirstOrDefault();
+                boId = boId ?? form["boId"].FirstOrDefault();
+                docName = docName ?? form["docName"].FirstOrDefault();
+                documentType = documentType ?? form["documentType"].FirstOrDefault();
 
-            var form = await Request.ReadFormAsync();
-            // if your part name is "file"
-            file = form.Files.GetFile("file");
-            if (file == null || file.Length == 0)
-                return BadRequest("Missing file upload");
+                // Fix: safely parse expirationDate into a local nullable, then coalesce
+                DateTime? parsedDate = null;
+                if (DateTime.TryParse(form["expirationDate"].FirstOrDefault(), out var dt))
+                {
+                    parsedDate = dt;
+                }
+                expirationDate = expirationDate ?? parsedDate;
+
+                // Grab the file if the binder didn't
+                file = file ?? form.Files.FirstOrDefault();
+
+                _logger.Log($"[ManualExtract] boType={boType}, boId={boId}, docName={docName}, documentType={documentType}, expirationDate={expirationDate}", LogLevel.DEBUG);
+                if (file != null)
+                    _logger.Log($"[ManualExtract] File: name={file.Name}, filename={file.FileName}, length={file.Length}", LogLevel.DEBUG);
+                else
+                    _logger.Log("[ManualExtract] No file found in form.Files", LogLevel.WARNING);
+            }
+
+            _logger.Log("---- EXIT CreateDocumentNodeAsync ----", LogLevel.DEBUG);
+
+            // …rest of your CreateDocumentNodeAsync implementation…
+
 
 
             // Get ticket from Request
