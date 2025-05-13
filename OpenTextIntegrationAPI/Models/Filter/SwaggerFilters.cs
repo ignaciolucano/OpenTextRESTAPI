@@ -111,7 +111,7 @@ namespace OpenTextIntegrationAPI.Models.Filter
             }
 
             // POST /v1/Nodes/create
-            if (controller == "Nodes" && action == "CreateDocumentNodeAsync")
+            if (controller == "Nodes" && action == "CreateDocumentNode")
             {
                 operation.Summary = _config["Swagger:CreateDocumentNode:Summary"] ?? operation.Summary;
                 operation.Description = _config["Swagger:CreateDocumentNode:Description"] ?? operation.Description;

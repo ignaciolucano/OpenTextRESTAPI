@@ -69,8 +69,8 @@ namespace OpenTextIntegrationAPI.Controllers
         /// <returns>HTTP response with node information and content</returns>
         [HttpGet("{id}")]
         [SwaggerOperation(
-            Summary = "Get a node by its ID",
-            Description = "Retrieves a node (document, folder, or other object) from OpenText Content Server by its node ID"
+            Summary = "",
+            Description = ""
         )]
         [SwaggerResponse(200, "OK", typeof(NodeResponse))]
         [SwaggerResponse(400, "Invalid parameter value")]
@@ -183,6 +183,16 @@ namespace OpenTextIntegrationAPI.Controllers
         /// <param name="documentType">Document type/classification</param>
         /// <returns>HTTP response with created node information</returns>
         [HttpPost("create")]
+        [SwaggerOperation(
+            Summary = "",
+            Description = ""
+        )]
+        [SwaggerResponse(200, "OK", typeof(CreateDocumentNodeResponse))]
+        [SwaggerResponse(400, "Invalid parameter value")]
+        [SwaggerResponse(401, "Authentication Required")]
+        [SwaggerResponse(404, "Parent folder not found")]
+        [SwaggerResponse(500, "Internal Error. Contact API Admin")]
+        [Produces("application/json")]
         [DisableRequestSizeLimit] // removes the 2 GB Kestrel cap and any per-endpoint limit
         [RequestFormLimits(
         MultipartBodyLengthLimit = long.MaxValue,

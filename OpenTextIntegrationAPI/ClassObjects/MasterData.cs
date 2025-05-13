@@ -48,7 +48,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
         /// <param name="ticket">Authentication ticket (OTCSTICKET)</param>
         /// <returns>Response containing header information and document list</returns>
         /// <exception cref="Exception">Thrown when authentication fails</exception>
-        public async Task<MasterDataDocumentsResponse?> GetMasterDataDocumentsAsync(string boType, string boId, string ticket)
+        public async Task<ChangeRequestDocumentsResponse?> GetMasterDataDocumentsAsync(string boType, string boId, string ticket)
         {
             _logger.Log("Starting GetMasterDataDocumentsAsync", LogLevel.DEBUG);
             _logger.Log($"Parameters: boType={boType}, boId={boId}", LogLevel.TRACE);
@@ -84,11 +84,11 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
                 // Get master documents from the workspace
                 _logger.Log($"Retrieving documents from workspace node {workspaceNodeId}", LogLevel.DEBUG);
-                var documents = await _csNode.GetNodeSubNodesAsync(workspaceNodeId, ticket, expDateCatId, "Master", null);
+                var documents = await _csNode.CRGetNodeSubNodesAsync(workspaceNodeId, ticket, expDateCatId, "Master", null);
                 _logger.Log($"Documents retrieved: {documents.Count}", LogLevel.INFO);
 
                 // Construct and return the response object
-                return new MasterDataDocumentsResponse
+                return new ChangeRequestDocumentsResponse
                 {
                     Header = new MasterDataDocumentsHeader
                     {
