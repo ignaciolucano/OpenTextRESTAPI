@@ -108,8 +108,8 @@
             return Ok(docs);
         }
 
-        // POST: /v1/ChangeRequest/{boType}/{boId}
-        [HttpPost("{crBoId}/reject/{origBoType}/{origBoId}")]
+        // POST: /v1/ChangeRequest/{crBoId}/reject
+        [HttpPost("{crBoId}/reject/")]
         [SwaggerOperation(
             Summary = "",
             Description = ""
@@ -120,15 +120,13 @@
         [SwaggerResponse(404, "Business Workspace Not Found")]
         [SwaggerResponse(500, "Internal Error. Contact API Admin")]
         [Produces("application/json")]
-        public async Task<IActionResult> RejectChangeRequest(string crBoId, string origBoType, string origBoId, [FromBody] DTOs.ChangeRequestUpdateRequest updateRequest)
+        public async Task<IActionResult> RejectChangeRequest(string crBoId, [FromBody] DTOs.ChangeRequestUpdateRequest updateRequest)
         {
             // Log inbound request
             _logger.LogRawInbound("inbound_request_reject_change_request",
                 System.Text.Json.JsonSerializer.Serialize(new
                 {
                     crBoId,
-                    origBoType,
-                    origBoId,
                     source_ip = HttpContext.Connection.RemoteIpAddress?.ToString(),
                     timestamp = DateTime.UtcNow
                 })
@@ -236,7 +234,7 @@
                 return StatusCode(401, $"Error Getting Change Request Documents: {ex.Message}");
             }
 
-            MasterDataDocumentsResponse docs;
+            ChangeRequestDocumentsResponse docs;
             try
             {
                 docs = await _crBusinessWorkspace.GetDocumentsChangeRequestAsync(boType, boId, ticket);

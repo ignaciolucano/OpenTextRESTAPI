@@ -184,6 +184,105 @@ namespace OpenTextIntegrationAPI.ClassObjects
         }
 
         /// <summary>
+        /// Given a node ID, returns the name of its parent folder (container).
+        /// If the node itself is a folder, its own name is returned.
+        /// </summary>
+        /// <param name="nodeId">Content Server node ID</param>
+        /// <param name="ticket">Valid OTCS authentication ticket</param>
+        /// <returns>The folder name, or <c>null</c> if not found</returns>
+        /// <exception cref="Exception">Throws on HTTP / auth errors</exception>
+        public async Task<string?> GetFolderNameAsync(int nodeId, string ticket)
+        {
+            _logger.Log($"[GetFolderNameAsync] nodeId={nodeId}", LogLevel.DEBUG);
+            if (string.IsNullOrWhiteSpace(ticket))
+                throw new Exception("Empty OTCS ticket.");
+
+            // ---------- 1) GET node metadata ----------
+            string baseUrl = _settings.BaseUrl;
+            string nodeUrl = $"{baseUrl}/api/v2/nodes/{nodeId}";
+            using var req = new HttpRequestMessage(HttpMethod.Get, nodeUrl);
+            req.Headers.Add("OTCSTICKET", ticket);
+            _logger.LogRawApi("api_request_get_node_meta",
+                JsonSerializer.Serialize(new { nodeId, nodeUrl }));
+
+            using var resp = await _httpClient.SendAsync(req);
+            string body = await resp.Content.ReadAsStringAsync();
+            _logger.LogRawApi("api_response_get_node_meta", body);
+
+            if (!resp.IsSuccessStatusCode)
+                throw new Exception($"OTCS GET {nodeUrl} → {(int)resp.StatusCode}");
+
+            // ---------- 2) parse type / name / parent ----------
+            (string? name, int parentId, int type) = ParseMeta(body, nodeId);
+
+            // if the node itself is a folder/container, return its own name
+            if (type == 0 || type == 202 || type == 204 || type == 848)
+            {
+                _logger.Log($"Node is container → '{name}'", LogLevel.INFO);
+                return name;
+            }
+
+            if (parentId == 0)
+            {
+                _logger.Log("parent_id missing, cannot resolve folder", LogLevel.WARNING);
+                return null;
+            }
+
+            // ---------- 3) GET parent folder ----------
+            string pUrl = $"{baseUrl}/api/v2/nodes/{parentId}";
+            using var pReq = new HttpRequestMessage(HttpMethod.Get, pUrl);
+            pReq.Headers.Add("OTCSTICKET", ticket);
+
+            using var pResp = await _httpClient.SendAsync(pReq);
+            string pBody = await pResp.Content.ReadAsStringAsync();
+            _logger.LogRawApi("api_response_get_parent_node", pBody);
+
+            if (!pResp.IsSuccessStatusCode)
+                throw new Exception($"OTCS GET {pUrl} → {(int)pResp.StatusCode}");
+
+            (string? folderName, _, _) = ParseMeta(pBody, parentId);
+            _logger.Log($"Folder resolved → '{folderName}'", LogLevel.INFO);
+            return folderName;
+        }
+
+
+        /* ------------------------------------------------------------------ */
+        /* helper: handles both OTCS JSON layouts                              */
+        private static (string? Name, int ParentId, int Type) ParseMeta(string json, int fallbackId)
+        {
+            using var doc = JsonDocument.Parse(json);
+            JsonElement root = doc.RootElement;
+
+            // 1) preferred layout: results -> data -> properties
+            if (root.TryGetProperty("results", out var results) &&
+                results.TryGetProperty("data", out var data) &&
+                data.ValueKind == JsonValueKind.Object &&
+                data.TryGetProperty("properties", out var props))
+            {
+                string? name = props.GetProperty("name").GetString();
+                int type = props.GetProperty("type").GetInt32();
+                int parentId = data.TryGetProperty("parent_id", out var p) ? p.GetInt32()
+                                                                          : fallbackId;
+                return (name, parentId, type);
+            }
+
+            // 2) fallback layout: data.{name,type,parent_id}
+            if (root.TryGetProperty("data", out var d) && d.ValueKind == JsonValueKind.Object)
+            {
+                string? name = d.GetProperty("name").GetString();
+                int type = d.GetProperty("type").GetInt32();
+                int parentId = d.TryGetProperty("parent_id", out var p) ? p.GetInt32()
+                                                                        : fallbackId;
+                return (name, parentId, type);
+            }
+
+            // 3) nothing matched
+            return (null, fallbackId, 0);
+        }
+
+
+
+        /// <summary>
         /// Retrieves a node by its ID, including its content.
         /// </summary>
         /// <param name="nodeId">ID of the node to retrieve</param>
@@ -218,6 +317,8 @@ namespace OpenTextIntegrationAPI.ClassObjects
             string retFileName = "";
             int retNodeType = 0;
             string retNodeTypeName = "";
+            int retParentId = 0;
+            string retNodeMimeType = "";
 
             // Create request with authentication ticket
             var requestMessage = new HttpRequestMessage(HttpMethod.Get, url);
@@ -270,6 +371,12 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
                             retNodeTypeName = data.TryGetProperty("type_name", out JsonElement typeNameElem) ?
                                 typeNameElem.GetString() ?? "" : "";
+
+                            retParentId = data.TryGetProperty("parent_id", out JsonElement idParentElem) ?
+                                idParentElem.GetInt32() : nodeId;
+
+                            retNodeMimeType = data.TryGetProperty("mime_type", out JsonElement typeMimeType) ?
+                                typeMimeType.GetString() ?? "" : "";
                         }
                         // If not found in that structure, try alternative paths
                         else if (root.TryGetProperty("results", out JsonElement results) )
@@ -293,6 +400,12 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
                                     retNodeTypeName = propertiesArray.TryGetProperty("type_name", out JsonElement typeNameElem) ?
                                         typeNameElem.GetString() ?? "" : "";
+
+                                    retParentId = propertiesArray.TryGetProperty("parent_id", out JsonElement idParentElem) ?
+                                        idParentElem.GetInt32() : nodeId;
+
+                                    retNodeMimeType = propertiesArray.TryGetProperty("mime_type", out JsonElement typeMimeType) ?
+                                        typeMimeType.GetString() ?? "" : "";
                                 }
                             }
                         }
@@ -313,19 +426,23 @@ namespace OpenTextIntegrationAPI.ClassObjects
                 throw;
             }
 
-            string? DocTypeRule = await _csUtilities.GetClassifications(retNodeId.ToString(), ticket);
+            // Check if the node has a valid Classification
+            //string? DocTypeRule = await _csUtilities.GetClassifications(retNodeId.ToString(), ticket);
+            var info = await _csUtilities.GetClassificationInfoAsync(retNodeId, ticket);
             string documentType;
 
-            if (string.IsNullOrEmpty(DocTypeRule))
+            if (info == null)
             {
-                retNodeTypeName = ""; // Folder
+                retNodeTypeName = await GetFolderNameAsync(retParentId, ticket);
+
+                //retNodeTypeName = ""; // Folder
                 retNodeType = 0;
                 _logger.Log($"Using parent folder name as document type: ", LogLevel.TRACE);
             }
             else
             {
-                retNodeTypeName = DocTypeRule;
-                retNodeType = 0;
+                retNodeTypeName = info.Name;
+                retNodeType = info.Id;
                 _logger.Log($"Using classification as document type: {retNodeTypeName}", LogLevel.TRACE);
             }
             
@@ -384,7 +501,8 @@ namespace OpenTextIntegrationAPI.ClassObjects
                 file_name = retFileName,
                 type = retNodeType,
                 type_name = retNodeTypeName,
-                Content = contentBytes
+                Content = contentBytes,
+                mime_type = retNodeMimeType
             };
 
             _logger.Log($"Successfully retrieved node {nodeId} with {contentBytes.Length} bytes of content", LogLevel.INFO);
@@ -459,14 +577,72 @@ namespace OpenTextIntegrationAPI.ClassObjects
             return documents;
         }
 
+        public async Task<List<DocumentInfoCR>> CRGetNodeSubNodesAsync(string nodeId, string ticket, string expDateCatId, string MasterRequest, string? CatName = null)
+        {
+            _logger.Log($"Starting GetNodeSubNodesAsync for nodeId={nodeId}, MasterRequest={MasterRequest}", LogLevel.DEBUG);
+
+            // Build base URL for API call
+            var baseUrl = _settings.BaseUrl;
+            var extSystemId = _settings.ExtSystemId;
+
+            var docs = new List<DocumentInfoCR>();
+
+            // Helper function to add authentication ticket to requests
+            void AddTicketHeader(HttpRequestMessage req)
+            {
+                req.Headers.Remove("OTCSTICKET");
+                req.Headers.Add("OTCSTICKET", ticket);
+            }
+
+            // Build URL for getting child nodes
+            var wsChildNodesUrl = $"{baseUrl}/api/v2/nodes/{nodeId}/nodes";
+            var wsChildNodesRequest = new HttpRequestMessage(HttpMethod.Get, wsChildNodesUrl);
+            AddTicketHeader(wsChildNodesRequest);
+
+            _logger.Log($"Requesting child nodes from: {wsChildNodesUrl}", LogLevel.DEBUG);
+
+            // Log raw API request
+            _logger.LogRawApi("api_request_get_child_nodes", JsonSerializer.Serialize(new { nodeId, url = wsChildNodesUrl }));
+
+            // Execute the request
+            var wsChildNodesResponse = await _httpClient.SendAsync(wsChildNodesRequest);
+
+            // Check for successful response
+            if (!wsChildNodesResponse.IsSuccessStatusCode)
+            {
+                var err = await wsChildNodesResponse.Content.ReadAsStringAsync();
+                _logger.Log($"Business Workspace search failed: {err}", LogLevel.ERROR);
+
+                // Log raw API response
+                _logger.LogRawApi("api_response_get_child_nodes_error", err);
+
+                throw new Exception($"Business Workspace search failed with status {wsChildNodesResponse.StatusCode}: {err}");
+            }
+
+            // Read response content
+            var wsChildNodesJson = await wsChildNodesResponse.Content.ReadAsStringAsync();
+
+            // Log raw API response
+            _logger.LogRawApi("api_response_get_child_nodes", wsChildNodesJson);
+
+            _logger.Log($"Successfully retrieved child nodes for nodeId={nodeId}", LogLevel.DEBUG);
+
+            // Parse documents from response
+            _logger.Log("Parsing documents from response", LogLevel.DEBUG);
+            List<DocumentInfoCR> documents = await CRParseDocumentsFromBWAsync(wsChildNodesJson, ticket, baseUrl, expDateCatId, MasterRequest, CatName);
+
+            _logger.Log($"Found {documents.Count} documents in nodeId={nodeId}", LogLevel.INFO);
+            return documents;
+        }
+
         /// <summary>
-/// Finds a background image node by its display name.
-/// </summary>
-/// <param name="parentFolderId">ID of the parent folder to search in</param>
-/// <param name="displayName">Display name of the background image to find</param>
-/// <param name="ticket">Authentication ticket (OTCSTICKET)</param>
-/// <returns>Document info for the background image, or null if not found</returns>
-public async Task<DocumentInfo> FindBackgroundImageByNameAsync(string parentFolderId, string displayName, string ticket)
+        /// Finds a background image node by its display name.
+        /// </summary>
+        /// <param name="parentFolderId">ID of the parent folder to search in</param>
+        /// <param name="displayName">Display name of the background image to find</param>
+        /// <param name="ticket">Authentication ticket (OTCSTICKET)</param>
+        /// <returns>Document info for the background image, or null if not found</returns>
+        public async Task<DocumentInfo> FindBackgroundImageByNameAsync(string parentFolderId, string displayName, string ticket)
 {
     _logger.Log($"Finding background image with name: {displayName} in folder: {parentFolderId}", LogLevel.DEBUG);
     
@@ -650,6 +826,159 @@ public async Task<DocumentInfo> FindBackgroundImageByNameAsync(string parentFold
         /// <param name="masterRequest">Filter for "Master" or "Request" nodes</param>
         /// <param name="CatName">Optional category name for filtering</param>
         /// <returns>List of DocumentInfo objects</returns>
+        private async Task<List<DocumentInfoCR>> CRParseDocumentsFromBWAsync(string json, string ticket, string baseUrl, string expDateCatId, string masterRequest, string? CatName = null)
+        {
+            _logger.Log("Parsing documents from Business Workspace response JSON (no expDateCatId)", LogLevel.DEBUG);
+
+            var docs = new List<DocumentInfoCR>();
+            try
+            {
+                using (JsonDocument doc = JsonDocument.Parse(json))
+                {
+                    if (doc.RootElement.TryGetProperty("results", out JsonElement results) &&
+                        results.ValueKind == JsonValueKind.Array)
+                    {
+                        _logger.Log($"Found {results.GetArrayLength()} results to process", LogLevel.DEBUG);
+
+                        // Recolectar todas las carpetas primero
+                        var folderTasks = new List<Task<List<DocumentInfoCR>>>();
+                        var documentItems = new List<(JsonElement item, string id, string name, string mimeType)>();
+
+                        foreach (var item in results.EnumerateArray())
+                        {
+                            long idInt = 0;
+                            string id = "";
+                            string? mimeType = null;
+                            string docTypeId = "";
+                            string name = null;
+
+                            // Extract properties from the item
+                            if (item.TryGetProperty("data", out JsonElement data) &&
+                                data.TryGetProperty("properties", out JsonElement props))
+                            {
+                                // Extract common properties
+                                if (props.TryGetProperty("id", out JsonElement idElem))
+                                {
+                                    if (idElem.ValueKind == JsonValueKind.Number)
+                                    {
+                                        idInt = idElem.GetInt64();
+                                    }
+                                    else if (idElem.ValueKind == JsonValueKind.String && long.TryParse(idElem.GetString(), out long parsedId))
+                                    {
+                                        idInt = parsedId;
+                                    }
+                                    id = idInt.ToString();
+                                }
+
+                                name = props.TryGetProperty("name", out JsonElement nameElem)
+                                    ? nameElem.GetString() ?? ""
+                                    : "";
+
+                                // Check mime_type to determine if it's a document
+                                mimeType = props.TryGetProperty("mime_type", out JsonElement mimeElem)
+                                    ? mimeElem.GetString()
+                                    : null;
+                            }
+
+                            // Process based on mime_type - guardar documentos para procesar después y lanzar carpetas en paralelo
+                            if (string.IsNullOrEmpty(mimeType))
+                            {
+                                // Procesar carpetas en paralelo
+                                if (string.Equals(masterRequest, "Master", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    if (!string.Equals(name, "Staging", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        _logger.Log($"Processing Master folder: {name} (NodeId: {id})", LogLevel.DEBUG);
+                                        // Crear tarea para procesar la carpeta
+                                        folderTasks.Add(CRGetNodeSubNodesAsync(id, ticket, expDateCatId, masterRequest, name));
+                                    }
+                                }
+                                else if (string.Equals(masterRequest, "Request", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    if (string.Equals(name, "Staging", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        _logger.Log($"Processing Request folder: {name} (NodeId: {id})", LogLevel.DEBUG);
+                                        // Crear tarea para procesar la carpeta
+                                        folderTasks.Add(CRGetNodeSubNodesAsync(id, ticket, expDateCatId, masterRequest, name));
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                // Guardar documentos para procesar después
+                                documentItems.Add((item, id, name, mimeType));
+                            }
+                        }
+
+                        // Esperar a que todas las carpetas terminen de procesarse en paralelo
+                        if (folderTasks.Count > 0)
+                        {
+                            var folderResults = await Task.WhenAll(folderTasks);
+                            foreach (var folderDocs in folderResults)
+                            {
+                                if (folderDocs != null)
+                                {
+                                    _logger.Log($"Adding {folderDocs.Count} documents from subfolder", LogLevel.DEBUG);
+                                    docs.AddRange(folderDocs);
+                                }
+                            }
+                        }
+
+                        // Ahora procesar los documentos (mantenemos el procesamiento secuencial para evitar problemas)
+                        foreach (var (item, id, name, mimeType) in documentItems)
+                        {
+                            _logger.Log($"Processing document: {name} (NodeId: {id})", LogLevel.DEBUG);
+
+                            // Get document classification
+
+                            if (!int.TryParse(id, out var nodeId))
+                                throw new ArgumentException($"nodeId must be numeric.  Value = '{id}'");
+
+                            var DocTypeRule = await _csUtilities.GetClassificationInfoAsync(nodeId, ticket);
+                            //string? docType = info?.Name;           // si solo querés el nombre
+
+                            //string? DocTypeRule = await _csUtilities.GetClassificationInfoAsync(id, ticket);
+                            string documentType;
+                            string documentTypeId;
+
+                            if (DocTypeRule == null)
+                            {
+                                documentType = CatName;
+                                documentTypeId = "";
+                                _logger.Log($"Using category name as document type: {documentType}", LogLevel.TRACE);
+                            }
+                            else
+                            {
+                                documentType = DocTypeRule.Name;
+                                documentTypeId = DocTypeRule.Id.ToString();
+                                _logger.Log($"Using classification as document type: {documentType}", LogLevel.TRACE);
+                            }
+
+                            // Add document to result list
+                            docs.Add(new DocumentInfoCR
+                            {
+                                NodeId = id,
+                                Name = name,
+                                DocumentTypeId = documentTypeId,
+                                DocumentType = documentType,
+                                ExpirationDate = null
+                            });
+
+                            _logger.Log($"Added document: {name} with type: {documentType}", LogLevel.DEBUG);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogException(ex, LogLevel.ERROR);
+                _logger.Log($"Error parsing documents from response: {ex.Message}", LogLevel.ERROR);
+            }
+
+            _logger.Log($"Parsed {docs.Count} documents from response", LogLevel.INFO);
+            return docs;
+        }
+
         private async Task<List<DocumentInfo>> ParseDocumentsFromBWAsync(string json, string ticket, string baseUrl, string expDateCatId, string masterRequest, string? CatName = null)
         {
             _logger.Log("Parsing documents from Business Workspace response JSON (no expDateCatId)", LogLevel.DEBUG);

@@ -37,6 +37,7 @@ namespace OpenTextIntegrationAPI.Models
         public int nodeId { get; set; }
         public int type { get; set; }
         public string type_name { get; set; }
+        public string mime_type { get; set; }
         // etc. for other fields you care about
         public byte[]? Content { get; set; }
     }

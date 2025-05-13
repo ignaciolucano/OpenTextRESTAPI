@@ -228,7 +228,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
         /// <param name="ticket">Authentication ticket (OTCSTICKET)</param>
         /// <returns>MasterDataDocumentsResponse containing workspace info and documents</returns>
         /// <exception cref="Exception">Thrown when retrieval fails</exception>
-        public async Task<MasterDataDocumentsResponse?> GetDocumentsChangeRequestAsync(string boType, string boId, string ticket)
+        public async Task<ChangeRequestDocumentsResponse?> GetDocumentsChangeRequestAsync(string boType, string boId, string ticket)
         {
             _logger.Log("[GetDocumentsChangeRequestAsync] Starting document retrieval", LogLevel.INFO);
 
@@ -266,11 +266,11 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
                 // Get documents from the workspace with expiration date category
                 _logger.Log($"Retrieving documents from workspace node {workspaceNodeId}", LogLevel.DEBUG);
-                var documents = await _csNode.GetNodeSubNodesAsync(workspaceNodeId, ticket, expDateCatId, "Request", null);
+                var documents = await _csNode.CRGetNodeSubNodesAsync(workspaceNodeId, ticket, expDateCatId, "Request", null);
                 _logger.Log($"[GetDocumentsChangeRequestAsync] Retrieved {documents?.Count} documents", LogLevel.INFO);
 
                 // Construct and return the response object
-                return new MasterDataDocumentsResponse
+                return new ChangeRequestDocumentsResponse
                 {
                     Header = new MasterDataDocumentsHeader
                     {

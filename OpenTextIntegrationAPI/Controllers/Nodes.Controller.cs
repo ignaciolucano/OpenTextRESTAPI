@@ -11,6 +11,7 @@ using OpenTextIntegrationAPI.Utilities;
 using System.Globalization;
 using OpenTextIntegrationAPI.ClassObjects;
 using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.Http.Features;
 
 namespace OpenTextIntegrationAPI.Controllers
 {
@@ -182,93 +183,118 @@ namespace OpenTextIntegrationAPI.Controllers
         /// <param name="documentType">Document type/classification</param>
         /// <returns>HTTP response with created node information</returns>
         [HttpPost("create")]
-        //[Consumes("multipart/form-data")]
-        [SwaggerOperation(
-        Summary = "Create a new document node",
-        Description = "Creates a new document in the business workspace associated with the specified business object"
-    )]
-        [SwaggerResponse(200, "OK", typeof(CreateDocumentNodeResponse))]
-        [SwaggerResponse(400, "Invalid parameter value")]
-        [SwaggerResponse(401, "Authentication Required")]
-        [SwaggerResponse(404, "Parent folder not found")]
-        [SwaggerResponse(500, "Internal Error. Contact API Admin")]
-        [Produces("application/json")]
+        [DisableRequestSizeLimit] // removes the 2 GB Kestrel cap and any per-endpoint limit
+        [RequestFormLimits(
+        MultipartBodyLengthLimit = long.MaxValue,
+        MultipartHeadersLengthLimit = int.MaxValue,
+        ValueLengthLimit = int.MaxValue)]
         public async Task<IActionResult> CreateDocumentNodeAsync(
-        [FromQuery(Name = "boType")] string boType,
-        [FromQuery(Name = "boId")] string boId,
-        [FromQuery(Name = "docName")] string docName,
-        IFormFile file,
-        [FromQuery(Name = "expirationDate")] DateTime? expirationDate = null,
-        [FromQuery(Name = "documentType")] string documentType = null)
+        [FromQuery] string? boType,
+        [FromQuery] string? boId,
+        [FromQuery] string? docName,
+        IFormFile? file,
+        [FromQuery] DateTime? expirationDate = null,
+        [FromQuery] string? documentType = null)
         {
+            // ------------- request inspection (no extra reads) -------------
             _logger.Log($"CreateDocumentNodeAsync called for BO: {boType}/{boId}, Document: {docName}", LogLevel.INFO);
-
             _logger.Log("---- ENTER CreateDocumentNodeAsync ----", LogLevel.DEBUG);
 
-            _logger.Log($"ContentType: {Request.ContentType}", LogLevel.DEBUG);
-            _logger.Log($"HasFormContentType: {Request.HasFormContentType}", LogLevel.DEBUG);
+            // ---------------------------------------------------------------------------
+            // EXTENSIVE REQUEST DUMP (only runs in DEBUG/TEST  – wrap as you need)
+            // ---------------------------------------------------------------------------
 
-            // 1) Habilitamos buffering antes de leer
+            // Let us re‑read the body safely
             Request.EnableBuffering();
-            _logger.Log("Enabled buffering, Body.Position = " + Request.Body.Position, LogLevel.DEBUG);
 
-            IFormCollection form = null;
+            string rawBody;
+            using (var sr = new StreamReader(Request.Body,
+                                             encoding: Encoding.UTF8,
+                                             detectEncodingFromByteOrderMarks: false,
+                                             leaveOpen: true))          // keep stream open for MVC
+            {
+                rawBody = await sr.ReadToEndAsync();
+                Request.Body.Position = 0;                             // rewind for the model‑binder
+            }
+
+            // Try to parse form without triggering a second body read
+            IFormCollection? form = null;
             try
             {
-                _logger.Log("About to call ReadFormAsync()", LogLevel.DEBUG);
+                if (Request.HasFormContentType)
+                    form = await Request.ReadFormAsync();              // first (and only) parse
+            }
+            catch (Exception ex)
+            {
+                _logger.Log($"Form parse failed: {ex.Message}", LogLevel.WARNING);
+            }
 
-                // si esto se queda colgado, al menos verás en el log dónde
-                form = await Request.ReadFormAsync();
+            // Build a full snapshot
+            var dump = new
+            {
+                Method = Request.Method,
+                Scheme = Request.Scheme,
+                Host = Request.Host.Value,
+                Path = Request.Path.Value,
+                QueryString = Request.QueryString.Value,
+                Protocol = Request.Protocol,
+                ContentType = Request.ContentType,
+                ContentLength = Request.ContentLength,
+                Headers = Request.Headers
+                                     .ToDictionary(h => h.Key, h => h.Value.ToString()),
+                HasFormContentType = Request.HasFormContentType,
+                FormKeys = form?.Keys,
+                FormFiles = form?.Files.Select(f => new
+                {
+                    f.Name,
+                    f.FileName,
+                    f.Length,
+                    f.ContentType
+                }),
+                RawBody = rawBody            // ⚠ large; remove if size is an issue
+            };
 
-                _logger.Log("ReadFormAsync() completed", LogLevel.DEBUG);
-                _logger.Log($"Form keys: {string.Join(", ", form.Keys)}", LogLevel.DEBUG);
-                _logger.Log($"Files count: {form.Files.Count}", LogLevel.DEBUG);
+            // Persist the dump (pretty‑printed) using your existing logger
+            _logger.LogRawInbound(
+                $"sap_is_dump_{Guid.NewGuid():N}",
+                JsonSerializer.Serialize(dump, new JsonSerializerOptions
+                {
+                    WriteIndented = true
+                })
+            );
+
+            _logger.Log($"MaxRequestBodySize feature: {HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>()?.MaxRequestBodySize}", LogLevel.DEBUG);
+            _logger.Log($"Content-Length header: {Request.Headers.ContentLength}", LogLevel.DEBUG);
+
+            //IFormCollection form = null!;
+            try
+            {
+                form = Request.HasFormContentType ? Request.Form : null;
+                if (form is not null)
+                    _logger.Log($"Form keys: {string.Join(", ", form.Keys)} | Files: {form.Files.Count}", LogLevel.DEBUG);
             }
             catch (Exception ex)
             {
                 _logger.LogException(ex, LogLevel.ERROR);
-                _logger.Log("Exception during ReadFormAsync(): " + ex.Message, LogLevel.ERROR);
-                return StatusCode(500, $"Error reading form: {ex.Message}");
-            }
-            finally
-            {
-                // rebobinamos para que el binder de ASP.NET pueda volver a leer si lo necesita
-                Request.Body.Position = 0;
-                _logger.Log("After finally, Body.Position reset to 0", LogLevel.DEBUG);
+                return StatusCode(400, $"Unable to read multipart body: {ex.Message}");
             }
 
-            // Ahora ya sabes que el form está bien leído
-            if (form != null)
+            // Fill gaps if SAP IS sent fields inside the form body
+            if (form is not null)
             {
-                // FirstOrDefault() so we don't accidentally assign a StringValues array
-                boType = boType ?? form["boType"].FirstOrDefault();
-                boId = boId ?? form["boId"].FirstOrDefault();
-                docName = docName ?? form["docName"].FirstOrDefault();
-                documentType = documentType ?? form["documentType"].FirstOrDefault();
+                boType ??= form["boType"].FirstOrDefault();
+                boId ??= form["boId"].FirstOrDefault();
+                docName ??= form["docName"].FirstOrDefault();
+                documentType ??= form["documentType"].FirstOrDefault();
 
-                // Fix: safely parse expirationDate into a local nullable, then coalesce
-                DateTime? parsedDate = null;
-                if (DateTime.TryParse(form["expirationDate"].FirstOrDefault(), out var dt))
+                if (expirationDate is null &&
+                    DateTime.TryParse(form["expirationDate"].FirstOrDefault(), out var dt))
                 {
-                    parsedDate = dt;
+                    expirationDate = dt;
                 }
-                expirationDate = expirationDate ?? parsedDate;
 
-                // Grab the file if the binder didn't
-                file = file ?? form.Files.FirstOrDefault();
-
-                _logger.Log($"[ManualExtract] boType={boType}, boId={boId}, docName={docName}, documentType={documentType}, expirationDate={expirationDate}", LogLevel.DEBUG);
-                if (file != null)
-                    _logger.Log($"[ManualExtract] File: name={file.Name}, filename={file.FileName}, length={file.Length}", LogLevel.DEBUG);
-                else
-                    _logger.Log("[ManualExtract] No file found in form.Files", LogLevel.WARNING);
+                file ??= form.Files.FirstOrDefault();
             }
-
-            _logger.Log("---- EXIT CreateDocumentNodeAsync ----", LogLevel.DEBUG);
-
-            // …rest of your CreateDocumentNodeAsync implementation…
-
-
 
             // Get ticket from Request
             string ticket = "";

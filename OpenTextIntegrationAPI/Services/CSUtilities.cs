@@ -19,6 +19,80 @@ namespace OpenTextIntegrationAPI.Services
         private readonly ILogService _logger;
 
         /// <summary>
+        /// Simple DTO for a single classification entry.
+        /// </summary>
+        public record ClassificationInfo(int Id, string Name);
+
+        /// <summary>
+        /// Returns the first classification assigned to <paramref name="nodeId"/>.
+        /// </summary>
+        /// <param name="nodeId">Content Server node ID</param>
+        /// <param name="ticket">Valid OTCSTICKET</param>
+        /// <returns>
+        /// <c>ClassificationInfo</c> (Id &amp; Name) or <c>null</c> if the node has no
+        /// classification or an error occurs.
+        /// </returns>
+        public async Task<ClassificationInfo?> GetClassificationInfoAsync(
+            int nodeId,
+            string ticket)
+        {
+            _logger.Log(
+                $"[GetClassificationInfoAsync] nodeId={nodeId}",
+                LogLevel.DEBUG);
+
+            if (string.IsNullOrWhiteSpace(ticket))
+                throw new Exception("Authentication failed: OTCS ticket is empty.");
+
+            var url = $"{_settings.BaseUrl}/api/v1/nodes/{nodeId}/classifications";
+            _logger.Log($"GET classifications URL: {url}", LogLevel.TRACE);
+
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.Add("OTCSTICKET", ticket);
+
+            _logger.LogRawApi("api_request_get_classification",
+                JsonSerializer.Serialize(new { nodeId, url }));
+
+            using var resp = await _httpClient.SendAsync(
+                                 req, HttpCompletionOption.ResponseHeadersRead);
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                var err = await resp.Content.ReadAsStringAsync();
+                _logger.Log(
+                    $"OTCS GET {url} → {(int)resp.StatusCode} {resp.ReasonPhrase}",
+                    LogLevel.WARNING);
+                _logger.LogRawApi("api_response_get_classification_error", err);
+                return null;
+            }
+
+            using var stream = await resp.Content.ReadAsStreamAsync();
+            using var doc = await JsonDocument.ParseAsync(stream);
+
+            _logger.LogRawApi("api_response_get_classification_ok",
+                JsonSerializer.Serialize(doc.RootElement));
+
+            // typical structure: { "data": [ { "id":123, "name":"Invoice" }, ... ] }
+            if (doc.RootElement.TryGetProperty("data", out var dataElem) &&
+                dataElem.ValueKind == JsonValueKind.Array &&
+                dataElem.GetArrayLength() > 0)
+            {
+                var first = dataElem[0];
+                int classId = first.GetProperty("id").GetInt32();
+                string className = first.GetProperty("name").GetString() ?? "";
+
+                _logger.Log(
+                    $"Classification resolved → id={classId}, name='{className}'",
+                    LogLevel.INFO);
+
+                return new ClassificationInfo(classId, className);
+            }
+
+            _logger.Log("Node has no classifications", LogLevel.DEBUG);
+            return null;
+        }
+
+
+        /// <summary>
         /// Initializes a new instance of the CSUtilities class with required dependencies.
         /// </summary>
         /// <param name="httpClient">HTTP client for API calls</param>
