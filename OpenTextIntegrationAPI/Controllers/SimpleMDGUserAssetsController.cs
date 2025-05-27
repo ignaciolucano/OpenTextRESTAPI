@@ -345,7 +345,7 @@ namespace OpenTextIntegrationAPI.Controllers
 
                 // Read and process response
                 var responseContent = await httpResponse.Content.ReadAsStringAsync();
-                _logger.LogRawApi("api_response_create_avatar", responseContent);
+                _logger.LogRawOutbound("response_create_avatar", responseContent);
 
                 // Extract new node ID
                 string createdNodeId = "";
@@ -521,7 +521,7 @@ namespace OpenTextIntegrationAPI.Controllers
 
                 // Read and process response
                 var responseContent = await httpResponse.Content.ReadAsStringAsync();
-                _logger.LogRawApi("api_response_update_avatar", responseContent);
+                _logger.LogRawOutbound("response_update_avatar", responseContent);
 
                 // Prepare response
                 var response = new UserAvatarResponse
@@ -674,7 +674,7 @@ namespace OpenTextIntegrationAPI.Controllers
 
                 // 7. Log successful retrieval (metadata only, not content)
                 _logger.Log($"Successfully retrieved avatar for user {userEmail}", LogLevel.INFO);
-                _logger.LogRawInbound("inbound_response_get_avatar",
+                _logger.LogRawOutbound("response_get_avatar",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         nodeId = avatarNode.nodeId,
@@ -693,7 +693,7 @@ namespace OpenTextIntegrationAPI.Controllers
                 _logger.Log($"Error retrieving avatar: {ex.Message}", LogLevel.ERROR);
 
                 // Log error response
-                _logger.LogRawInbound("inbound_response_get_avatar_error",
+                _logger.LogRawOutbound("response_get_avatar_error",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         error = ex.Message,
@@ -927,7 +927,7 @@ namespace OpenTextIntegrationAPI.Controllers
 
                 // Read and process response
                 var responseContent = await httpResponse.Content.ReadAsStringAsync();
-                _logger.LogRawApi("api_response_create_attachment", responseContent);
+                _logger.LogRawOutbound("response_create_attachment", responseContent);
 
                 // Extract new node ID
                 string createdNodeId = "";
@@ -1022,7 +1022,7 @@ namespace OpenTextIntegrationAPI.Controllers
 
                 // Log successful retrieval (metadata only, not content)
                 _logger.Log($"Successfully retrieved attachment: {attachmentId}", LogLevel.INFO);
-                _logger.LogRawInbound("inbound_response_get_attachment",
+                _logger.LogRawInbound("response_get_attachment",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         nodeId = attachmentNode.nodeId,
@@ -1041,7 +1041,7 @@ namespace OpenTextIntegrationAPI.Controllers
                 _logger.Log($"Error retrieving attachment: {ex.Message}", LogLevel.ERROR);
 
                 // Log error response
-                _logger.LogRawInbound("inbound_response_get_attachment_error",
+                _logger.LogRawInbound("response_get_attachment_error",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         error = ex.Message,
@@ -1303,7 +1303,7 @@ namespace OpenTextIntegrationAPI.Controllers
 
                 // Read and process response
                 var responseContent = await httpResponse.Content.ReadAsStringAsync();
-                _logger.LogRawApi("api_response_update_attachment", responseContent);
+                _logger.LogRawOutbound("response_update_attachment", responseContent);
 
                 // Get updated attachment info
                 var updatedNode = await _csNode.GetNodeByIdAsync(int.Parse(attachmentId), ticket);

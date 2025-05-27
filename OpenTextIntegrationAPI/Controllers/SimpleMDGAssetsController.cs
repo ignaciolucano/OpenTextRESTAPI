@@ -166,7 +166,7 @@ namespace OpenTextIntegrationAPI.Controllers
 
                     // Read and process response
                     var responseContent = await httpResponse.Content.ReadAsStringAsync();
-                    _logger.LogRawApi("api_response_update_logo", responseContent);
+                    _logger.LogRawOutbound("response_update_logo", responseContent);
 
                     // Prepare response
                     response.Message = "Global logo updated successfully with new version";
@@ -265,7 +265,7 @@ namespace OpenTextIntegrationAPI.Controllers
 
                     // Read and process response
                     var responseContent = await httpResponse.Content.ReadAsStringAsync();
-                    _logger.LogRawApi("api_response_create_logo", responseContent);
+                    _logger.LogRawOutbound("response_create_logo", responseContent);
 
                     // Extract new node ID
                     string createdNodeId = "";
@@ -380,7 +380,7 @@ namespace OpenTextIntegrationAPI.Controllers
 
                 // 4. Log successful retrieval (metadata only, not content)
                 _logger.Log($"Successfully retrieved logo with ID: {logoId}, Name: {logoNode.file_name}", LogLevel.INFO);
-                _logger.LogRawInbound("inbound_response_get_logo",
+                _logger.LogRawInbound("response_get_logo",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         nodeId = logoNode.nodeId,
@@ -399,7 +399,7 @@ namespace OpenTextIntegrationAPI.Controllers
                 _logger.Log($"Error retrieving logo: {ex.Message}", LogLevel.ERROR);
 
                 // Log error response
-                _logger.LogRawInbound("inbound_response_get_logo_error",
+                _logger.LogRawInbound("response_get_logo_error",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         error = ex.Message,
@@ -593,7 +593,7 @@ namespace OpenTextIntegrationAPI.Controllers
 
                 // Read and process response
                 var responseContent = await httpResponse.Content.ReadAsStringAsync();
-                _logger.LogRawApi("api_response_create_background", responseContent);
+                _logger.LogRawOutbound("response_create_background", responseContent);
 
                 // Extract new node ID
                 string createdNodeId = "";
@@ -713,7 +713,7 @@ namespace OpenTextIntegrationAPI.Controllers
 
                 // 4. Log successful retrieval (metadata only, not content)
                 _logger.Log($"Successfully retrieved background image with name: {name}, ID: {bgId}", LogLevel.INFO);
-                _logger.LogRawInbound("inbound_response_get_background",
+                _logger.LogRawInbound("response_get_background",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         nodeId = backgroundNode.nodeId,
@@ -732,7 +732,7 @@ namespace OpenTextIntegrationAPI.Controllers
                 _logger.Log($"Error retrieving background image: {ex.Message}", LogLevel.ERROR);
 
                 // Log error response
-                _logger.LogRawInbound("inbound_response_get_background_error",
+                _logger.LogRawInbound("response_get_background_error",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         error = ex.Message,
@@ -872,7 +872,7 @@ namespace OpenTextIntegrationAPI.Controllers
 
                 // Read and process response
                 var responseContent = await httpResponse.Content.ReadAsStringAsync();
-                _logger.LogRawApi("api_response_update_background", responseContent);
+                _logger.LogRawOutbound("response_update_background", responseContent);
 
                 // Get updated node information
                 var updatedNode = await _csNode.GetNodeByIdAsync(int.Parse(backgroundId), ticket);

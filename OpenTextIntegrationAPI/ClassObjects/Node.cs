@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Options;
+﻿using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.Extensions.Options;
 using OpenTextIntegrationAPI.Models;
 using OpenTextIntegrationAPI.Services;
 using System.Diagnostics;
@@ -19,6 +20,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
         private readonly HttpClient _httpClient;
         private readonly CSUtilities _csUtilities;
         private readonly ILogService _logger;
+        private readonly MemberService _memberService;
 
         /// <summary>
         /// Initializes a new instance of the Node class with required dependencies.
@@ -27,7 +29,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
         /// <param name="httpClient">HTTP client for API calls</param>
         /// <param name="csUtilities">Utility methods for Content Server operations</param>
         /// <param name="logger">Logging service for tracking operations</param>
-        public Node(IOptions<OpenTextSettings> settings, HttpClient httpClient, CSUtilities csUtilities, ILogService logger)
+        public Node(IOptions<OpenTextSettings> settings, HttpClient httpClient, CSUtilities csUtilities, ILogService logger, MemberService memberService)
         {
             _settings = settings.Value;
             _httpClient = httpClient;
@@ -36,6 +38,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
             // Log initialization of the Node service
             _logger.Log("Node service initialized", LogLevel.DEBUG);
+            _memberService = memberService;
         }
 
         /// <summary>
@@ -82,7 +85,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             requestMessage.Headers.Add("OTCSTICKET", ticket);
 
             // Log raw API request
-            _logger.LogRawApi("api_request_delete_node", JsonSerializer.Serialize(new { nodeId, url = deleteUrl }));
+            _logger.LogRawOutbound("request_delete_node", JsonSerializer.Serialize(new { nodeId, url = deleteUrl }));
 
             HttpResponseMessage response;
             try
@@ -93,7 +96,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
                 // Log raw API response
                 string responseContent = await response.Content.ReadAsStringAsync();
-                _logger.LogRawApi("api_response_delete_node", responseContent);
+                _logger.LogRawOutbound("response_delete_node", responseContent);
             }
             catch (Exception ex)
             {
@@ -135,7 +138,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             request.Headers.Add("OTCSTICKET", ticket);
 
             // Log raw API request
-            _logger.LogRawApi("api_request_get_bw_for_node", JsonSerializer.Serialize(new { nodeId, url }));
+            _logger.LogRawOutbound("request_get_bw_for_node", JsonSerializer.Serialize(new { nodeId, url }));
 
             // Execute the request
             _logger.Log("Sending request to OpenText API", LogLevel.TRACE);
@@ -145,7 +148,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             var json = await response.Content.ReadAsStringAsync();
 
             // Log raw API response
-            _logger.LogRawApi("api_response_get_bw_for_node", json);
+            _logger.LogRawOutbound("response_get_bw_for_node", json);
 
             // Check for successful response
             if (!response.IsSuccessStatusCode)
@@ -202,12 +205,12 @@ namespace OpenTextIntegrationAPI.ClassObjects
             string nodeUrl = $"{baseUrl}/api/v2/nodes/{nodeId}";
             using var req = new HttpRequestMessage(HttpMethod.Get, nodeUrl);
             req.Headers.Add("OTCSTICKET", ticket);
-            _logger.LogRawApi("api_request_get_node_meta",
+            _logger.LogRawOutbound("request_get_node_meta",
                 JsonSerializer.Serialize(new { nodeId, nodeUrl }));
 
             using var resp = await _httpClient.SendAsync(req);
             string body = await resp.Content.ReadAsStringAsync();
-            _logger.LogRawApi("api_response_get_node_meta", body);
+            _logger.LogRawOutbound("response_get_node_meta", body);
 
             if (!resp.IsSuccessStatusCode)
                 throw new Exception($"OTCS GET {nodeUrl} → {(int)resp.StatusCode}");
@@ -235,7 +238,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
             using var pResp = await _httpClient.SendAsync(pReq);
             string pBody = await pResp.Content.ReadAsStringAsync();
-            _logger.LogRawApi("api_response_get_parent_node", pBody);
+            _logger.LogRawOutbound("response_get_parent_node", pBody);
 
             if (!pResp.IsSuccessStatusCode)
                 throw new Exception($"OTCS GET {pUrl} → {(int)pResp.StatusCode}");
@@ -325,7 +328,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             requestMessage.Headers.Add("OTCSTICKET", ticket);
 
             // Log raw API request
-            _logger.LogRawApi("api_request_get_node", JsonSerializer.Serialize(new { nodeId, url }));
+            _logger.LogRawOutbound("request_get_node", JsonSerializer.Serialize(new { nodeId, url }));
 
             // Send request to get node metadata
             HttpResponseMessage response;
@@ -344,7 +347,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
                 // Log raw API response
                 var wsNodesInfoJson = await response.Content.ReadAsStringAsync();
-                _logger.LogRawApi("api_response_get_node", wsNodesInfoJson);
+                _logger.LogRawOutbound("response_get_node", wsNodesInfoJson);
 
                 // Parse node properties from response with improved error handling
                 try
@@ -456,7 +459,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             requestMessage.Headers.Add("OTCSTICKET", ticket);
 
             // Log raw API request for content
-            _logger.LogRawApi("api_request_get_node_content", JsonSerializer.Serialize(new { nodeId, url }));
+            _logger.LogRawOutbound("request_get_node_content", JsonSerializer.Serialize(new { nodeId, url }));
 
             // Send request to get node content
             try
@@ -544,7 +547,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             _logger.Log($"Requesting child nodes from: {wsChildNodesUrl}", LogLevel.DEBUG);
 
             // Log raw API request
-            _logger.LogRawApi("api_request_get_child_nodes", JsonSerializer.Serialize(new { nodeId, url = wsChildNodesUrl }));
+            _logger.LogRawOutbound("request_get_child_nodes", JsonSerializer.Serialize(new { nodeId, url = wsChildNodesUrl }));
 
             // Execute the request
             var wsChildNodesResponse = await _httpClient.SendAsync(wsChildNodesRequest);
@@ -556,7 +559,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
                 _logger.Log($"Business Workspace search failed: {err}", LogLevel.ERROR);
 
                 // Log raw API response
-                _logger.LogRawApi("api_response_get_child_nodes_error", err);
+                _logger.LogRawOutbound("response_get_child_nodes_error", err);
 
                 throw new Exception($"Business Workspace search failed with status {wsChildNodesResponse.StatusCode}: {err}");
             }
@@ -565,7 +568,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             var wsChildNodesJson = await wsChildNodesResponse.Content.ReadAsStringAsync();
 
             // Log raw API response
-            _logger.LogRawApi("api_response_get_child_nodes", wsChildNodesJson);
+            _logger.LogRawOutbound("response_get_child_nodes", wsChildNodesJson);
 
             _logger.Log($"Successfully retrieved child nodes for nodeId={nodeId}", LogLevel.DEBUG);
 
@@ -602,7 +605,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             _logger.Log($"Requesting child nodes from: {wsChildNodesUrl}", LogLevel.DEBUG);
 
             // Log raw API request
-            _logger.LogRawApi("api_request_get_child_nodes", JsonSerializer.Serialize(new { nodeId, url = wsChildNodesUrl }));
+            _logger.LogRawOutbound("request_get_child_nodes", JsonSerializer.Serialize(new { nodeId, url = wsChildNodesUrl }));
 
             // Execute the request
             var wsChildNodesResponse = await _httpClient.SendAsync(wsChildNodesRequest);
@@ -614,7 +617,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
                 _logger.Log($"Business Workspace search failed: {err}", LogLevel.ERROR);
 
                 // Log raw API response
-                _logger.LogRawApi("api_response_get_child_nodes_error", err);
+                _logger.LogRawOutbound("response_get_child_nodes_error", err);
 
                 throw new Exception($"Business Workspace search failed with status {wsChildNodesResponse.StatusCode}: {err}");
             }
@@ -623,7 +626,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             var wsChildNodesJson = await wsChildNodesResponse.Content.ReadAsStringAsync();
 
             // Log raw API response
-            _logger.LogRawApi("api_response_get_child_nodes", wsChildNodesJson);
+            _logger.LogRawOutbound("response_get_child_nodes", wsChildNodesJson);
 
             _logger.Log($"Successfully retrieved child nodes for nodeId={nodeId}", LogLevel.DEBUG);
 
@@ -717,7 +720,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             _logger.Log($"Requesting child nodes from: {wsChildNodesUrl}", LogLevel.DEBUG);
 
             // Log raw API request
-            _logger.LogRawApi("api_request_get_child_nodes", JsonSerializer.Serialize(new { nodeId, url = wsChildNodesUrl }));
+            _logger.LogRawOutbound("request_get_child_nodes", JsonSerializer.Serialize(new { nodeId, url = wsChildNodesUrl }));
 
             // Execute the request
             var wsChildNodesResponse = await _httpClient.SendAsync(wsChildNodesRequest);
@@ -729,7 +732,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
                 _logger.Log($"Business Workspace search failed: {err}", LogLevel.ERROR);
 
                 // Log raw API response
-                _logger.LogRawApi("api_response_get_child_nodes_error", err);
+                _logger.LogRawOutbound("api_response_get_child_nodes_error", err);
 
                 throw new Exception($"Business Workspace search failed with status {wsChildNodesResponse.StatusCode}: {err}");
             }
@@ -738,7 +741,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             var wsChildNodesJson = await wsChildNodesResponse.Content.ReadAsStringAsync();
 
             // Log raw API response
-            _logger.LogRawApi("api_response_get_child_nodes", wsChildNodesJson);
+            _logger.LogRawOutbound("response_get_child_nodes", wsChildNodesJson);
 
             _logger.Log($"Successfully retrieved child nodes for nodeId={nodeId}", LogLevel.DEBUG);
 
@@ -783,7 +786,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             _logger.Log($"Requesting child nodes from: {wsChildNodesUrl}", LogLevel.DEBUG);
 
             // Log raw API request
-            _logger.LogRawApi("api_request_get_child_folders", JsonSerializer.Serialize(new { nodeId, url = wsChildNodesUrl }));
+            _logger.LogRawOutbound("request_get_child_folders", JsonSerializer.Serialize(new { nodeId, url = wsChildNodesUrl }));
 
             // Execute the request
             var wsChildNodesResponse = await _httpClient.SendAsync(wsChildNodesRequest);
@@ -795,7 +798,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
                 _logger.Log($"Business Workspace search failed: {err}", LogLevel.ERROR);
 
                 // Log raw API response
-                _logger.LogRawApi("api_response_get_child_folders_error", err);
+                _logger.LogRawOutbound("response_get_child_folders_error", err);
 
                 throw new Exception($"Business Workspace search failed with status {wsChildNodesResponse.StatusCode}: {err}");
             }
@@ -804,7 +807,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             var wsChildNodesJson = await wsChildNodesResponse.Content.ReadAsStringAsync();
 
             // Log raw API response
-            _logger.LogRawApi("api_response_get_child_folders", wsChildNodesJson);
+            _logger.LogRawOutbound("response_get_child_folders", wsChildNodesJson);
 
             _logger.Log($"Successfully retrieved child nodes for nodeId={nodeId}", LogLevel.DEBUG);
 
@@ -842,7 +845,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
                         // Recolectar todas las carpetas primero
                         var folderTasks = new List<Task<List<DocumentInfoCR>>>();
-                        var documentItems = new List<(JsonElement item, string id, string name, string mimeType)>();
+                        var documentItems = new List<(JsonElement item, string id, string name, string mimeType, long fileSize, string createdAt, string createdBy, string updatedAt, string updatedBy)> ();
 
                         foreach (var item in results.EnumerateArray())
                         {
@@ -851,6 +854,15 @@ namespace OpenTextIntegrationAPI.ClassObjects
                             string? mimeType = null;
                             string docTypeId = "";
                             string name = null;
+                            // New Fields required by SimpleMDG
+                            long fileSize = 0;
+                            string createdAt = string.Empty;
+                            string createdBy  = string.Empty;
+                            int intCreatedBy = 0;
+                            string updatedAt = string.Empty;
+                            string updatedBy  = string.Empty;
+                            int intUpdatedBy = 0;
+                            int fallbackId = 0;
 
                             // Extract properties from the item
                             if (item.TryGetProperty("data", out JsonElement data) &&
@@ -878,6 +890,62 @@ namespace OpenTextIntegrationAPI.ClassObjects
                                 mimeType = props.TryGetProperty("mime_type", out JsonElement mimeElem)
                                     ? mimeElem.GetString()
                                     : null;
+
+                                // New SimpleMDG Fields
+                                // createdAt
+                                createdAt = props.TryGetProperty("create_date", out JsonElement createdAtElem)
+                                    ? createdAtElem.GetString() ?? ""
+                                    : "";
+
+                                // createdBy
+                                intCreatedBy = props.TryGetProperty("create_user_id", out var createdByElem) ? createdByElem.GetInt32()
+                                                                          : fallbackId;
+
+                                var memberCreatedBy = await _memberService.GetMemberAsync(intCreatedBy, ticket);
+                                
+                                if ( memberCreatedBy != null)
+                                {
+                                    createdBy = memberCreatedBy.name;
+                                }
+                                else
+                                {
+                                    createdBy = "";
+                                }
+
+                                // updatedAt
+                                updatedAt = props.TryGetProperty("modify_date", out JsonElement updatedAtElem)
+                                    ? updatedAtElem.GetString() ?? ""
+                                    : "";
+
+                                // updatedBy
+                                intUpdatedBy = props.TryGetProperty("modify_user_id", out var updatedByElem) ? updatedByElem.GetInt32()
+                                                                          : fallbackId;
+
+                                var memberUpdatedBy = await _memberService.GetMemberAsync(intUpdatedBy, ticket);
+
+                                if (memberUpdatedBy != null)
+                                {
+                                    updatedBy = memberUpdatedBy.name;
+                                }
+                                else
+                                {
+                                    updatedBy = "";
+                                }
+
+
+                                // fileSize
+                                if (props.TryGetProperty("size", out JsonElement sizeElem))
+                                {
+                                    if (sizeElem.ValueKind == JsonValueKind.Number)
+                                    {
+                                        fileSize = sizeElem.GetInt64();
+                                    }
+                                    else if (sizeElem.ValueKind == JsonValueKind.String && long.TryParse(sizeElem.GetString(), out long parsedSize))
+                                    {
+                                        fileSize = parsedSize;
+                                    }
+                                }
+
                             }
 
                             // Process based on mime_type - guardar documentos para procesar después y lanzar carpetas en paralelo
@@ -906,7 +974,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
                             else
                             {
                                 // Guardar documentos para procesar después
-                                documentItems.Add((item, id, name, mimeType));
+                                documentItems.Add((item, id, name, mimeType, fileSize, createdAt, createdBy, updatedAt, updatedBy));
                             }
                         }
 
@@ -925,7 +993,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
                         }
 
                         // Ahora procesar los documentos (mantenemos el procesamiento secuencial para evitar problemas)
-                        foreach (var (item, id, name, mimeType) in documentItems)
+                        foreach (var (item, id, name, mimeType, fileSize, createdAt, createdBy, updatedAt, updatedBy) in documentItems)
                         {
                             _logger.Log($"Processing document: {name} (NodeId: {id})", LogLevel.DEBUG);
 
@@ -961,8 +1029,15 @@ namespace OpenTextIntegrationAPI.ClassObjects
                                 Name = name,
                                 DocumentTypeId = documentTypeId,
                                 DocumentType = documentType,
-                                ExpirationDate = null
-                            });
+                                ExpirationDate = null,
+                                fileSize = fileSize,
+                                fileType = mimeType,
+                                createdAt = createdAt,
+                                createdBy = createdBy,
+                                updatedAt = updatedAt,
+                                updatedBy = updatedBy
+
+    });
 
                             _logger.Log($"Added document: {name} with type: {documentType}", LogLevel.DEBUG);
                         }
@@ -995,7 +1070,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
                         // Recolectar todas las carpetas primero
                         var folderTasks = new List<Task<List<DocumentInfo>>>();
-                        var documentItems = new List<(JsonElement item, string id, string name, string mimeType)>();
+                        var documentItems = new List<(JsonElement item, string id, string name, string mimeType, long fileSize, string createdAt, string createdBy, string updatedAt, string updatedBy)>();
 
                         foreach (var item in results.EnumerateArray())
                         {
@@ -1003,6 +1078,15 @@ namespace OpenTextIntegrationAPI.ClassObjects
                             string id = "";
                             string? mimeType = null;
                             string name = null;
+                            // New Fields required by SimpleMDG
+                            long fileSize = 0;
+                            string createdAt = string.Empty;
+                            string createdBy = string.Empty;
+                            int intCreatedBy = 0;
+                            string updatedAt = string.Empty;
+                            string updatedBy = string.Empty;
+                            int intUpdatedBy = 0;
+                            int fallbackId = 0;
 
                             // Extract properties from the item
                             if (item.TryGetProperty("data", out JsonElement data) &&
@@ -1030,7 +1114,64 @@ namespace OpenTextIntegrationAPI.ClassObjects
                                 mimeType = props.TryGetProperty("mime_type", out JsonElement mimeElem)
                                     ? mimeElem.GetString()
                                     : null;
+
+                                // New SimpleMDG Fields
+                                // createdAt
+                                createdAt = props.TryGetProperty("create_date", out JsonElement createdAtElem)
+                                    ? createdAtElem.GetString() ?? ""
+                                    : "";
+
+                                // createdBy
+                                intCreatedBy = props.TryGetProperty("create_user_id", out var createdByElem) ? createdByElem.GetInt32()
+                                                                          : fallbackId;
+
+                                var memberCreatedBy = await _memberService.GetMemberAsync(intCreatedBy, ticket);
+
+                                if (memberCreatedBy != null)
+                                {
+                                    createdBy = memberCreatedBy.name;
+                                }
+                                else
+                                {
+                                    createdBy = "";
+                                }
+
+                                // updatedAt
+                                updatedAt = props.TryGetProperty("modify_date", out JsonElement updatedAtElem)
+                                    ? updatedAtElem.GetString() ?? ""
+                                    : "";
+
+                                // updatedBy
+                                intUpdatedBy = props.TryGetProperty("modify_user_id", out var updatedByElem) ? updatedByElem.GetInt32()
+                                                                          : fallbackId;
+
+                                var memberUpdatedBy = await _memberService.GetMemberAsync(intUpdatedBy, ticket);
+
+                                if (memberUpdatedBy != null)
+                                {
+                                    updatedBy = memberUpdatedBy.name;
+                                }
+                                else
+                                {
+                                    updatedBy = "";
+                                }
+
+
+                                // fileSize
+                                if (props.TryGetProperty("size", out JsonElement sizeElem))
+                                {
+                                    if (sizeElem.ValueKind == JsonValueKind.Number)
+                                    {
+                                        fileSize = sizeElem.GetInt64();
+                                    }
+                                    else if (sizeElem.ValueKind == JsonValueKind.String && long.TryParse(sizeElem.GetString(), out long parsedSize))
+                                    {
+                                        fileSize = parsedSize;
+                                    }
+                                }
                             }
+
+
 
                             // Process based on mime_type - guardar documentos para procesar después y lanzar carpetas en paralelo
                             if (string.IsNullOrEmpty(mimeType))
@@ -1058,7 +1199,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
                             else
                             {
                                 // Guardar documentos para procesar después
-                                documentItems.Add((item, id, name, mimeType));
+                                documentItems.Add((item, id, name, mimeType, fileSize, createdAt, createdBy, updatedAt, updatedBy));
                             }
                         }
 
@@ -1077,7 +1218,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
                         }
 
                         // Ahora procesar los documentos (mantenemos el procesamiento secuencial para evitar problemas)
-                        foreach (var (item, id, name, mimeType) in documentItems)
+                        foreach (var (item, id, name, mimeType, fileSize, createdAt, createdBy, updatedAt, updatedBy) in documentItems)
                         {
                             _logger.Log($"Processing document: {name} (NodeId: {id})", LogLevel.DEBUG);
 
@@ -1102,7 +1243,13 @@ namespace OpenTextIntegrationAPI.ClassObjects
                                 NodeId = id,
                                 Name = name,
                                 DocumentType = documentType,
-                                ExpirationDate = null
+                                ExpirationDate = null,
+                                fileSize = fileSize,
+                                fileType = mimeType,
+                                createdAt = createdAt,
+                                createdBy = createdBy,
+                                updatedAt = updatedAt,
+                                updatedBy = updatedBy
                             });
 
                             _logger.Log($"Added document: {name} with type: {documentType}", LogLevel.DEBUG);
@@ -1389,7 +1536,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             _logger.Log($"Move request body: {nodeCreationJson}", LogLevel.DEBUG);
 
             // Log raw API request
-            _logger.LogRawApi("api_request_move_node", nodeCreationJson);
+            _logger.LogRawOutbound("request_move_node", nodeCreationJson);
 
             // Create request with authentication ticket
             using var requestMessage = new HttpRequestMessage(HttpMethod.Post, copyUrl);
@@ -1414,7 +1561,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
                 // Log raw API response
                 string responseContent = await response.Content.ReadAsStringAsync();
-                _logger.LogRawApi("api_response_move_node", responseContent);
+                _logger.LogRawOutbound("response_move_node", responseContent);
 
                 // Check for successful response
                 if (!response.IsSuccessStatusCode)
@@ -1470,7 +1617,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             _logger.Log($"Create folder request body: {nodeCreationJson}", LogLevel.DEBUG);
 
             // Log raw API request
-            _logger.LogRawApi("api_request_create_folder", nodeCreationJson);
+            _logger.LogRawOutbound("request_create_folder", nodeCreationJson);
 
             // Create request with authentication ticket
             using var requestMessage = new HttpRequestMessage(HttpMethod.Post, copyUrl);
@@ -1497,7 +1644,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
                 var wsChildNodesJson = await response.Content.ReadAsStringAsync();
 
                 // Log raw API response
-                _logger.LogRawApi("api_response_create_folder", wsChildNodesJson);
+                _logger.LogRawOutbound("response_create_folder", wsChildNodesJson);
 
                 // Check for successful response
                 if (!response.IsSuccessStatusCode)
@@ -1561,7 +1708,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             _logger.Log($"Create folder request body: {folderDataJson}", LogLevel.DEBUG);
 
             // Log raw API request
-            _logger.LogRawApi("api_request_create_folder", folderDataJson);
+            _logger.LogRawOutbound("request_create_folder", folderDataJson);
 
             // Create request with authentication ticket
             using var requestMessage = new HttpRequestMessage(HttpMethod.Post, createUrl);
@@ -1588,7 +1735,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
                 var responseContent = await response.Content.ReadAsStringAsync();
 
                 // Log raw API response
-                _logger.LogRawApi("api_response_create_folder", responseContent);
+                _logger.LogRawOutbound("response_create_folder", responseContent);
 
                 // Check for successful response
                 if (!response.IsSuccessStatusCode)

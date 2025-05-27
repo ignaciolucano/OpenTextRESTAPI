@@ -42,16 +42,16 @@
         public async Task<IActionResult> ApproveChangeRequest(string crBoId, string origBoType, string origBoId, [FromBody] DTOs.ChangeRequestUpdateRequest updateRequest)
         {
             // Log inbound request
-            _logger.LogRawInbound("inbound_request_approve_change_request",
-                System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    crBoId,
-                    origBoType,
-                    origBoId,
-                    source_ip = HttpContext.Connection.RemoteIpAddress?.ToString(),
-                    timestamp = DateTime.UtcNow
-                })
-            );
+            //_logger.LogRawInbound("inbound_request_approve_change_request",
+            //    System.Text.Json.JsonSerializer.Serialize(new
+            //    {
+            //        crBoId,
+            //        origBoType,
+            //        origBoId,
+            //        source_ip = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            //         timestamp = DateTime.UtcNow
+            //    })
+            //);
 
             // Get's Ticket from Request
             string ticket = "";
@@ -62,7 +62,7 @@
             catch (Exception ex)
             {
                 // Log error response
-                _logger.LogRawInbound("inbound_response_approve_change_request_auth_error",
+                _logger.LogRawInbound("response_approve_change_request_auth_error",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         status = "error",
@@ -81,7 +81,7 @@
                 docs = await _crBusinessWorkspace.UpdateChangeRequestDataAsync("BUS2250", crBoId, ticket, updateRequest, "APPROVED");
 
                 // Log successful response
-                _logger.LogRawInbound("inbound_response_approve_change_request_success",
+                _logger.LogRawOutbound("response_approve_change_request_success",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         status = "success",
@@ -93,7 +93,7 @@
             catch (Exception ex)
             {
                 // Log error response
-                _logger.LogRawInbound("inbound_response_approve_change_request_error",
+                _logger.LogRawInbound("response_approve_change_request_error",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         status = "error",
@@ -123,7 +123,7 @@
         public async Task<IActionResult> RejectChangeRequest(string crBoId, [FromBody] DTOs.ChangeRequestUpdateRequest updateRequest)
         {
             // Log inbound request
-            _logger.LogRawInbound("inbound_request_reject_change_request",
+            _logger.LogRawOutbound("request_reject_change_request",
                 System.Text.Json.JsonSerializer.Serialize(new
                 {
                     crBoId,
@@ -141,7 +141,7 @@
             catch (Exception ex)
             {
                 // Log error response
-                _logger.LogRawInbound("inbound_response_reject_change_request_auth_error",
+                _logger.LogRawInbound("response_reject_change_request_auth_error",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         status = "error",
@@ -160,7 +160,7 @@
                 docs = await _crBusinessWorkspace.UpdateChangeRequestDataAsync("BUS2250", crBoId, ticket, updateRequest, "REJECTED");
 
                 // Log successful response
-                _logger.LogRawInbound("inbound_response_reject_change_request_success",
+                _logger.LogRawOutbound("response_reject_change_request_success",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         status = "success",
@@ -172,7 +172,7 @@
             catch (Exception ex)
             {
                 // Log error response
-                _logger.LogRawInbound("inbound_response_reject_change_request_error",
+                _logger.LogRawInbound("response_reject_change_request_error",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         status = "error",
@@ -202,15 +202,15 @@
         public async Task<IActionResult> GetDocumentsChangeRequest(string boType, string boId)
         {
             // Log inbound request
-            _logger.LogRawInbound("inbound_request_get_change_request_documents",
-                System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    boType,
-                    boId,
-                    source_ip = HttpContext.Connection.RemoteIpAddress?.ToString(),
-                    timestamp = DateTime.UtcNow
-                })
-            );
+            //_logger.LogRawInbound("inbound_request_get_change_request_documents",
+            //    System.Text.Json.JsonSerializer.Serialize(new
+            //    {
+            //        boType,
+            //        boId,
+            //        source_ip = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            //        timestamp = DateTime.UtcNow
+            //    })
+            //);
 
             // Get's Ticket from Request
             string ticket = "";
@@ -221,14 +221,14 @@
             catch (Exception ex)
             {
                 // Log error response
-                _logger.LogRawInbound("inbound_response_get_change_request_documents_auth_error",
-                    System.Text.Json.JsonSerializer.Serialize(new
-                    {
-                        status = "error",
-                        error_message = ex.Message,
-                        timestamp = DateTime.UtcNow
-                    })
-                );
+                //_logger.LogRawOutbound("response_get_change_request_documents_auth_error",
+                //System.Text.Json.JsonSerializer.Serialize(new
+                //{
+                //status = "error",
+                //error_message = ex.Message,
+                //timestamp = DateTime.UtcNow
+                //})
+                //);
 
                 // Return a 401 status code if auth fails.
                 return StatusCode(401, $"Error Getting Change Request Documents: {ex.Message}");
@@ -240,7 +240,7 @@
                 docs = await _crBusinessWorkspace.GetDocumentsChangeRequestAsync(boType, boId, ticket);
 
                 // Log successful response
-                _logger.LogRawInbound("inbound_response_get_change_request_documents_success",
+                _logger.LogRawOutbound("response_get_change_request_documents_success",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         status = "success",
@@ -254,7 +254,7 @@
             catch (Exception ex)
             {
                 // Log error response
-                _logger.LogRawInbound("inbound_response_get_change_request_documents_error",
+                _logger.LogRawInbound("response_get_change_request_documents_error",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         status = "error",
@@ -287,15 +287,15 @@
             [FromBody] DTOs.ChangeRequestUpdateRequest updateRequest)
         {
             // Log inbound request
-            _logger.LogRawInbound("inbound_request_update_change_request",
-                System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    boType,
-                    boId,
-                    source_ip = HttpContext.Connection.RemoteIpAddress?.ToString(),
-                    timestamp = DateTime.UtcNow
-                })
-            );
+            //_logger.LogRawInbound("inbound_request_update_change_request",
+            //    System.Text.Json.JsonSerializer.Serialize(new
+            //    {
+            //        boType,
+            //        boId,
+            //        source_ip = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            //        timestamp = DateTime.UtcNow
+            //    })
+            //);
 
             // Get's Ticket from Request
             string ticket = "";
@@ -306,7 +306,7 @@
             catch (Exception ex)
             {
                 // Log error response
-                _logger.LogRawInbound("inbound_response_update_change_request_auth_error",
+                _logger.LogRawInbound("response_update_change_request_auth_error",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         status = "error",
@@ -325,7 +325,7 @@
                 docs = await _crBusinessWorkspace.UpdateChangeRequestDataAsync(boType, boId, ticket, updateRequest);
 
                 // Log successful response
-                _logger.LogRawInbound("inbound_response_update_change_request_success",
+                _logger.LogRawOutbound("response_update_change_request_success",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         status = "success",
@@ -337,7 +337,7 @@
             catch (Exception ex)
             {
                 // Log error response
-                _logger.LogRawInbound("inbound_response_update_change_request_error",
+                _logger.LogRawInbound("response_update_change_request_error",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         status = "error",

@@ -1,4 +1,11 @@
-﻿using System.Net.Http.Headers;
+﻿// ==================================================================================================
+// File: AuthService.cs
+// Description: Handles external and internal authentication against OpenText Content Server.
+// Author: Ignacio Lucano
+// Date: 2025-05-14
+// ==================================================================================================
+
+using System.Net.Http.Headers;
 using System.Text.Json;
 using OpenTextIntegrationAPI.Models;
 using OpenTextIntegrationAPI.DTOs;
@@ -11,16 +18,15 @@ namespace OpenTextIntegrationAPI.Services
     /// </summary>
     public class AuthService
     {
-        private readonly HttpClient _httpClient;
-        private readonly IConfiguration _configuration;
-        private readonly ILogService _logger;
+        private readonly HttpClient _httpClient; // HTTP client for making requests to OpenText
+        private readonly IConfiguration _configuration; // Configuration for URLs and credentials
+        private readonly ILogService _logger; // Logger for tracing and error logging
+
+        #region Constructor
 
         /// <summary>
-        /// Initializes a new instance of the AuthService class with required dependencies.
+        /// Initializes a new instance of the AuthService with dependencies.
         /// </summary>
-        /// <param name="httpClient">HTTP client for API calls</param>
-        /// <param name="configuration">Application configuration</param>
-        /// <param name="logger">Service for logging operations and errors</param>
         public AuthService(HttpClient httpClient, IConfiguration configuration, ILogService logger)
         {
             _httpClient = httpClient;
@@ -31,44 +37,45 @@ namespace OpenTextIntegrationAPI.Services
             _logger.Log("AuthService initialized", LogLevel.DEBUG);
         }
 
+        #endregion
+
+        #region Public Methods
+
         /// <summary>
-        /// Authenticates to OpenText with externally supplied credentials (from the API caller).
+        /// Authenticates an external user against OpenText using provided credentials.
         /// </summary>
-        /// <param name="username">User name for authentication</param>
-        /// <param name="password">Password for authentication</param>
-        /// <param name="domain">Domain for authentication</param>
-        /// <returns>Authentication ticket string</returns>
-        /// <exception cref="Exception">Thrown when authentication fails</exception>
+        /// <param name="username">User's username.</param>
+        /// <param name="password">User's password.</param>
+        /// <param name="domain">User's domain.</param>
+        /// <returns>Authentication ticket string if successful.</returns>
         public async Task<string> AuthenticateExternalAsync(string username, string password, string domain)
         {
             _logger.Log($"Starting external authentication for user: {username}, Domain: {domain}", LogLevel.INFO);
 
-            // Retrieve configuration values
+            // Retrieve base URL and authentication path from configuration
             var baseUrl = _configuration["OpenText:BaseUrl"];
             var authPath = _configuration["OpenText:AuthPath"];
 
-            // Validate configuration
+            // Validate configuration presence
             if (string.IsNullOrEmpty(baseUrl) || string.IsNullOrEmpty(authPath))
-            {
-                _logger.Log("Authentication configuration missing", LogLevel.ERROR);
                 throw new Exception("OpenText authentication configuration is missing");
-            }
 
             var authUrl = $"{baseUrl}{authPath}";
             _logger.Log($"Authentication URL: {authUrl}", LogLevel.DEBUG);
 
-            // Log authentication attempt (without password)
-            _logger.LogRawApi("api_request_auth_external",
-                JsonSerializer.Serialize(new
-                {
-                    username,
-                    domain,
-                    auth_url = authUrl,
-                    timestamp = DateTime.UtcNow
-                })
-            );
+            // Serialize request details for logging
+            var requestDump = JsonSerializer.Serialize(new
+            {
+                username,
+                domain,
+                auth_url = authUrl,
+                timestamp = DateTime.UtcNow
+            }, new JsonSerializerOptions { WriteIndented = true });
 
-            // Create form data with credentials
+            // Log raw outbound request
+            _logger.LogRawOutbound("request_auth_external", requestDump);
+
+            // Prepare form data for POST request
             var formData = new Dictionary<string, string>
             {
                 { "username", username },
@@ -79,286 +86,255 @@ namespace OpenTextIntegrationAPI.Services
             var content = new FormUrlEncodedContent(formData);
             content.Headers.ContentType = new MediaTypeHeaderValue("application/x-www-form-urlencoded");
 
-            // Build request
-            _logger.Log("Creating authentication request", LogLevel.DEBUG);
+            // Create HTTP POST request message
             using var requestMessage = new HttpRequestMessage(HttpMethod.Post, authUrl)
             {
                 Content = content
             };
 
+            // Set headers to accept JSON and indicate AJAX request
             requestMessage.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             requestMessage.Headers.Add("X-Requested-With", "XMLHttpRequest");
 
-            // Send request
-            _logger.Log("Sending authentication request to OpenText", LogLevel.DEBUG);
             HttpResponseMessage response;
             try
             {
+                // Send the HTTP request
                 response = await _httpClient.SendAsync(requestMessage);
-
-                // Log response status
                 _logger.Log($"Authentication response status: {response.StatusCode}", LogLevel.DEBUG);
 
-                // Handle different response status codes
+                // Handle unauthorized response explicitly
                 if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
                 {
-                    _logger.Log($"Authentication failed: Invalid credentials for user {username}", LogLevel.WARNING);
+                    _logger.Log("Authentication failed: Invalid credentials", LogLevel.WARNING);
                     throw new Exception("Invalid credentials");
                 }
 
-                // Ensure successful response
+                // Throw if response indicates failure
                 response.EnsureSuccessStatusCode();
             }
             catch (HttpRequestException ex)
             {
+                // Log exception and raw error response
                 _logger.LogException(ex, LogLevel.ERROR);
                 _logger.Log($"Authentication request failed: {ex.Message}", LogLevel.ERROR);
 
-                // Log failed authentication
-                _logger.LogRawApi("api_response_auth_external_error",
-                    JsonSerializer.Serialize(new
-                    {
-                        status = "error",
-                        error_message = ex.Message,
-                        error_type = ex.GetType().Name
-                    })
-                );
+                var errorPayload = JsonSerializer.Serialize(new
+                {
+                    status = "error",
+                    error_message = ex.Message,
+                    error_type = ex.GetType().Name
+                }, new JsonSerializerOptions { WriteIndented = true });
 
+                _logger.LogRawOutbound("response_auth_external_error", errorPayload);
+
+                // Rethrow wrapped exception
                 throw new Exception($"Authentication failed: {ex.Message}", ex);
             }
 
-            // Parse response JSON
+            // Read response content as string
             var responseJson = await response.Content.ReadAsStringAsync();
 
             try
             {
-                _logger.Log("Parsing authentication response", LogLevel.DEBUG);
+                // Deserialize response into AuthResponse object
                 var authResponse = JsonSerializer.Deserialize<AuthResponse>(responseJson, new JsonSerializerOptions
                 {
                     PropertyNameCaseInsensitive = true
                 });
 
+                // Validate presence of ticket
                 if (authResponse == null || string.IsNullOrEmpty(authResponse.Ticket))
-                {
-                    _logger.Log("No ticket received from OpenText", LogLevel.ERROR);
-
-                    // Log authentication failure
-                    _logger.LogRawApi("api_response_auth_external_error",
-                        JsonSerializer.Serialize(new
-                        {
-                            status = "error",
-                            error_message = "No ticket received from OpenText"
-                        })
-                    );
-
                     throw new Exception("No ticket received from OpenText");
-                }
 
-                // Log successful authentication with masked ticket
-                string maskedTicket = MaskTicket(authResponse.Ticket);
-                _logger.Log($"Successfully authenticated user {username}. Ticket obtained: {maskedTicket}", LogLevel.INFO);
+                // Mask ticket for logging
+                var maskedTicket = MaskTicket(authResponse.Ticket);
 
-                // Log successful authentication response (with masked ticket)
-                _logger.LogRawApi("api_response_auth_external_success",
-                    JsonSerializer.Serialize(new
-                    {
-                        status = "success",
-                        masked_ticket = maskedTicket
-                    })
-                );
+                _logger.Log($"Successfully authenticated user {username}. Ticket: {maskedTicket}", LogLevel.INFO);
 
+                // Log raw outbound success response
+                var successPayload = JsonSerializer.Serialize(new
+                {
+                    status = "success",
+                    masked_ticket = maskedTicket
+                }, new JsonSerializerOptions { WriteIndented = true });
+
+                _logger.LogRawOutbound("response_auth_external_success", successPayload);
+
+                // Return the actual ticket
                 return authResponse.Ticket;
             }
             catch (JsonException ex)
             {
+                // Log JSON parsing exceptions and raw error response
                 _logger.LogException(ex, LogLevel.ERROR);
-                _logger.Log($"Error parsing authentication response: {ex.Message}", LogLevel.ERROR);
 
-                // Log parsing error
-                _logger.LogRawApi("api_response_auth_external_parse_error",
-                    JsonSerializer.Serialize(new
-                    {
-                        status = "error",
-                        error_message = ex.Message,
-                        error_type = ex.GetType().Name
-                    })
-                );
+                var errorPayload = JsonSerializer.Serialize(new
+                {
+                    status = "error",
+                    error_message = ex.Message,
+                    error_type = ex.GetType().Name
+                }, new JsonSerializerOptions { WriteIndented = true });
 
+                _logger.LogRawOutbound("response_auth_external_parse_error", errorPayload);
+
+                // Rethrow wrapped exception
                 throw new Exception($"Error parsing authentication response: {ex.Message}", ex);
             }
         }
 
         /// <summary>
-        /// Authenticates internally with a special user (not exposed as an endpoint).
-        /// Uses credentials stored in application configuration.
+        /// Authenticates internally using system credentials configured in app settings.
         /// </summary>
-        /// <returns>Authentication ticket string</returns>
-        /// <exception cref="Exception">Thrown when authentication fails</exception>
+        /// <returns>Authentication ticket string if successful.</returns>
         public async Task<string> AuthenticateInternalAsync()
         {
             _logger.Log("Starting internal authentication with system credentials", LogLevel.INFO);
 
+            // Retrieve configuration values for internal authentication
             var baseUrl = _configuration["OpenText:BaseUrl"];
             var authPath = _configuration["OpenText:AuthPath"];
-            var internalUsername = _configuration["OpenText:internalUsername"];
-            var internalPassword = _configuration["OpenText:internalPassword"];
-            var internalDomain = _configuration["OpenText:internalDomain"];
+            var username = _configuration["OpenText:internalUsername"];
+            var password = _configuration["OpenText:internalPassword"];
+            var domain = _configuration["OpenText:internalDomain"];
 
-            // Validate configuration
+            // Validate presence of required configuration
             if (string.IsNullOrEmpty(baseUrl) || string.IsNullOrEmpty(authPath) ||
-                string.IsNullOrEmpty(internalUsername) || string.IsNullOrEmpty(internalPassword))
-            {
-                _logger.Log("Internal authentication credentials not configured", LogLevel.ERROR);
-                throw new Exception("Internal authentication credentials not configured");
-            }
+                string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+                throw new Exception("Internal credentials not configured");
 
             var authUrl = $"{baseUrl}{authPath}";
             _logger.Log($"Authentication URL: {authUrl}", LogLevel.DEBUG);
 
-            // Log authentication attempt (without password)
-            _logger.LogRawApi("api_request_auth_internal",
-                JsonSerializer.Serialize(new
-                {
-                    username = internalUsername,
-                    domain = internalDomain,
-                    auth_url = authUrl,
-                    timestamp = DateTime.UtcNow
-                })
-            );
+            // Serialize request details for logging
+            var requestDump = JsonSerializer.Serialize(new
+            {
+                username,
+                domain,
+                auth_url = authUrl,
+                timestamp = DateTime.UtcNow
+            }, new JsonSerializerOptions { WriteIndented = true });
 
+            // Log raw outbound request
+            _logger.LogRawOutbound("request_auth_internal", requestDump);
+
+            // Prepare form data for POST request
             var formData = new Dictionary<string, string>
             {
-                { "username", internalUsername },
-                { "password", internalPassword },
-                { "domain", internalDomain ?? string.Empty }
+                { "username", username },
+                { "password", password },
+                { "domain", domain ?? string.Empty }
             };
 
             var content = new FormUrlEncodedContent(formData);
             content.Headers.ContentType = new MediaTypeHeaderValue("application/x-www-form-urlencoded");
 
-            // Build request
-            _logger.Log("Creating internal authentication request", LogLevel.DEBUG);
+            // Create HTTP POST request message
             using var requestMessage = new HttpRequestMessage(HttpMethod.Post, authUrl)
             {
                 Content = content
             };
 
+            // Set headers to accept JSON and indicate AJAX request
             requestMessage.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             requestMessage.Headers.Add("X-Requested-With", "XMLHttpRequest");
 
-            // Send request
-            _logger.Log("Sending internal authentication request to OpenText", LogLevel.DEBUG);
             HttpResponseMessage response;
             try
             {
+                // Send the HTTP request
                 response = await _httpClient.SendAsync(requestMessage);
+                _logger.Log($"Internal authentication status: {response.StatusCode}", LogLevel.DEBUG);
 
-                // Log response status
-                _logger.Log($"Internal authentication response status: {response.StatusCode}", LogLevel.DEBUG);
-
-                // Handle different response status codes
+                // Handle unauthorized response explicitly
                 if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-                {
-                    _logger.Log("Internal authentication failed: Invalid credentials", LogLevel.ERROR);
                     throw new Exception("Invalid internal credentials");
-                }
 
-                // Ensure successful response
+                // Throw if response indicates failure
                 response.EnsureSuccessStatusCode();
             }
             catch (HttpRequestException ex)
             {
+                // Log exception and raw error response
                 _logger.LogException(ex, LogLevel.ERROR);
-                _logger.Log($"Internal authentication request failed: {ex.Message}", LogLevel.ERROR);
 
-                // Log failed authentication
-                _logger.LogRawApi("api_response_auth_internal_error",
-                    JsonSerializer.Serialize(new
-                    {
-                        status = "error",
-                        error_message = ex.Message,
-                        error_type = ex.GetType().Name
-                    })
-                );
+                var errorPayload = JsonSerializer.Serialize(new
+                {
+                    status = "error",
+                    error_message = ex.Message,
+                    error_type = ex.GetType().Name
+                }, new JsonSerializerOptions { WriteIndented = true });
 
+                _logger.LogRawOutbound("response_auth_internal_error", errorPayload);
+
+                // Rethrow wrapped exception
                 throw new Exception($"Internal authentication failed: {ex.Message}", ex);
             }
 
-            // Parse response JSON
+            // Read response content as string
             var responseJson = await response.Content.ReadAsStringAsync();
 
             try
             {
-                _logger.Log("Parsing internal authentication response", LogLevel.DEBUG);
+                // Deserialize response into AuthResponse object
                 var authResponse = JsonSerializer.Deserialize<AuthResponse>(responseJson, new JsonSerializerOptions
                 {
                     PropertyNameCaseInsensitive = true
                 });
 
+                // Validate presence of ticket
                 if (authResponse == null || string.IsNullOrEmpty(authResponse.Ticket))
-                {
-                    _logger.Log("No ticket received from OpenText for internal authentication", LogLevel.ERROR);
-
-                    // Log authentication failure
-                    _logger.LogRawApi("api_response_auth_internal_error",
-                        JsonSerializer.Serialize(new
-                        {
-                            status = "error",
-                            error_message = "No ticket received from OpenText"
-                        })
-                    );
-
                     throw new Exception("No ticket received from OpenText (internal)");
-                }
 
-                // Log successful authentication with masked ticket
-                string maskedTicket = MaskTicket(authResponse.Ticket);
-                _logger.Log($"Successfully authenticated internally with system credentials. Ticket obtained: {maskedTicket}", LogLevel.INFO);
+                // Mask ticket for logging
+                var maskedTicket = MaskTicket(authResponse.Ticket);
+                _logger.Log($"Internal authentication OK. Ticket: {maskedTicket}", LogLevel.INFO);
 
-                // Log successful authentication response (with masked ticket)
-                _logger.LogRawApi("api_response_auth_internal_success",
-                    JsonSerializer.Serialize(new
-                    {
-                        status = "success",
-                        masked_ticket = maskedTicket
-                    })
-                );
+                // Log raw outbound success response
+                var successPayload = JsonSerializer.Serialize(new
+                {
+                    status = "success",
+                    masked_ticket = maskedTicket
+                }, new JsonSerializerOptions { WriteIndented = true });
 
+                _logger.LogRawOutbound("response_auth_internal_success", successPayload);
+
+                // Return the actual ticket
                 return authResponse.Ticket;
             }
             catch (JsonException ex)
             {
+                // Log JSON parsing exceptions and raw error response
                 _logger.LogException(ex, LogLevel.ERROR);
-                _logger.Log($"Error parsing internal authentication response: {ex.Message}", LogLevel.ERROR);
 
-                // Log parsing error
-                _logger.LogRawApi("api_response_auth_internal_parse_error",
-                    JsonSerializer.Serialize(new
-                    {
-                        status = "error",
-                        error_message = ex.Message,
-                        error_type = ex.GetType().Name
-                    })
-                );
+                var errorPayload = JsonSerializer.Serialize(new
+                {
+                    status = "error",
+                    error_message = ex.Message,
+                    error_type = ex.GetType().Name
+                }, new JsonSerializerOptions { WriteIndented = true });
 
-                throw new Exception($"Error parsing internal authentication response: {ex.Message}", ex);
+                _logger.LogRawOutbound("response_auth_internal_parse_error", errorPayload);
+
+                // Rethrow wrapped exception
+                throw new Exception($"Error parsing internal auth response: {ex.Message}", ex);
             }
         }
 
+        #endregion
+
+        #region Private Helpers
+
         /// <summary>
-        /// Masks authentication ticket for logging purposes.
+        /// Masks the authentication ticket for safe logging.
+        /// Shows first 8 and last 4 characters if ticket is long enough, otherwise masks completely.
         /// </summary>
-        /// <param name="ticket">The ticket to mask</param>
-        /// <returns>Masked ticket string</returns>
         private string MaskTicket(string ticket)
         {
-            if (string.IsNullOrEmpty(ticket))
-                return "********";
-
-            if (ticket.Length > 12)
-                return ticket.Substring(0, 8) + "..." + ticket.Substring(ticket.Length - 4);
-
-            return "********";
+            if (string.IsNullOrEmpty(ticket)) return "********";
+            return ticket.Length > 12 ? ticket[..8] + "..." + ticket[^4..] : "********";
         }
+
+        #endregion
     }
 }

@@ -94,7 +94,8 @@ namespace OpenTextIntegrationAPI.ClassObjects
                     {
                         BoType = boType,
                         BoId = boId,
-                        BwName = workspaceName
+                        BwName = workspaceName,
+                        docCount = documents.Count.ToString()
                     },
                     Files = documents
                 };
@@ -137,7 +138,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
             // Log raw API request if enabled in settings
             _logger.Log("Logging raw API request details", LogLevel.TRACE);
-            string logId = _logger.LogRawApi("opentext_request_search_business_workspace", JsonSerializer.Serialize(new { boType, boId, extSystemId, timestamp = DateTime.UtcNow }));
+            string logId = _logger.LogRawOutbound("request_search_business_workspace", JsonSerializer.Serialize(new { boType, boId, extSystemId, timestamp = DateTime.UtcNow }));
             // Execute the request
             _logger.Log("Sending HTTP request to OpenText API", LogLevel.TRACE);
             var response = await _httpClient.SendAsync(request);
@@ -146,7 +147,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             var json = await response.Content.ReadAsStringAsync();
 
             // Log raw API response if enabled in settings
-            _logger.LogRawApi("opentext_response_search_business_workspace", json);
+            _logger.LogRawOutbound("response_search_business_workspace", json);
 
             // Check for successful response
             if (!response.IsSuccessStatusCode)

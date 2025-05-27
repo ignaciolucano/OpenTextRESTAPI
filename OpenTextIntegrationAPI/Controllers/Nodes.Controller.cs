@@ -23,13 +23,13 @@ namespace OpenTextIntegrationAPI.Controllers
     [Route("v1/[controller]")]
     public class NodesController : ControllerBase
     {
-        private readonly HttpClient _httpClient;
-        private readonly AuthManager _authManager;
-        private readonly CSUtilities _csUtilities;
-        private static OpenTextSettings _settings;
-        private readonly CRBusinessWorkspace _crBusinessWorkspace;
-        private readonly Node _csNode;
-        private readonly ILogService _logger;
+        private readonly HttpClient _httpClient; // HTTP client for API calls
+        private readonly AuthManager _authManager; // Service to manage authentication tickets
+        private readonly CSUtilities _csUtilities; // Utilities for Content Server operations
+        private static OpenTextSettings _settings; // Configuration settings for OpenText API
+        private readonly CRBusinessWorkspace _crBusinessWorkspace; // Business workspace service
+        private readonly Node _csNode; // Node service for Content Server
+        private readonly ILogService _logger; // Logger service for logging events and errors
 
         /// <summary>
         /// Initializes a new instance of the NodesController with required dependencies.
@@ -82,14 +82,15 @@ namespace OpenTextIntegrationAPI.Controllers
         {
             _logger.Log($"GetNode called for ID: {id}", LogLevel.INFO);
 
-            // Get ticket from Request
+            // Initialize ticket variable
             string ticket = "";
             try
             {
+                // Attempt to extract authentication ticket from the request
                 _logger.Log("Extracting authentication ticket from request", LogLevel.DEBUG);
                 ticket = _authManager.ExtractTicket(Request);
 
-                // Log successful ticket extraction (with masked ticket)
+                // Log masked ticket for security
                 if (ticket != null && ticket.Length > 12)
                 {
                     string maskedTicket = ticket.Substring(0, 8) + "..." + ticket.Substring(ticket.Length - 4);
@@ -98,33 +99,32 @@ namespace OpenTextIntegrationAPI.Controllers
             }
             catch (Exception ex)
             {
+                // Log exception and return 401 Unauthorized if extraction fails
                 _logger.LogException(ex, LogLevel.ERROR);
                 _logger.Log($"Error extracting authentication ticket: {ex.Message}", LogLevel.ERROR);
-
-                // Return a 401 status code if auth fails
                 return StatusCode(401, $"Error getting node {id} : {ex.Message}");
             }
 
             try
             {
-                // Log request details
-                _logger.LogRawInbound("inbound_request_get_node",
+                // Log inbound request details with node ID
+                _logger.LogRawOutbound("request_get_node",
                      System.Text.Json.JsonSerializer.Serialize(new
-                    {
-                        nodeId = id
-                    })
+                     {
+                         nodeId = id
+                     })
                 );
 
-                // Retrieve node by ID
+                // Call service to retrieve node by ID using the ticket
                 _logger.Log($"Calling GetNodeByIdAsync for node ID: {id}", LogLevel.DEBUG);
                 var node = await _csNode.GetNodeByIdAsync(id, ticket);
 
-                // Check if node was found
+                // Handle case where node is not found
                 if (node == null)
                 {
                     _logger.Log($"Node with ID {id} not found", LogLevel.WARNING);
 
-                    // Log response for not found case
+                    // Log response indicating node not found
                     _logger.LogRawInbound("inbound_response_get_node_notfound",
                         System.Text.Json.JsonSerializer.Serialize(new
                         {
@@ -136,10 +136,10 @@ namespace OpenTextIntegrationAPI.Controllers
                     return StatusCode(404, $"Could not get a node for {id}");
                 }
 
-                // Log successful retrieval
+                // Log successful retrieval with node details
                 _logger.Log($"Successfully retrieved node with ID: {id}, Name: {node.file_name}", LogLevel.INFO);
 
-                // Log response details (metadata only, not content)
+                // Log response metadata (excluding content)
                 _logger.LogRawInbound("inbound_response_get_node",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
@@ -151,15 +151,16 @@ namespace OpenTextIntegrationAPI.Controllers
                     })
                 );
 
+                // Return node data with 200 OK
                 return Ok(node);
             }
             catch (Exception ex)
             {
+                // Log exception and error response details
                 _logger.LogException(ex, LogLevel.ERROR);
                 _logger.Log($"Error retrieving node: {ex.Message}", LogLevel.ERROR);
 
-                // Log error response
-                _logger.LogRawInbound("inbound_response_get_node_error",
+                _logger.LogRawOutbound("inbound_response_get_node_error",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         error = ex.Message,
@@ -167,7 +168,7 @@ namespace OpenTextIntegrationAPI.Controllers
                     })
                 );
 
-                // Return 500 if something unexpected happens
+                // Return 500 Internal Server Error on failure
                 return StatusCode(500, ex.Message);
             }
         }
@@ -199,24 +200,25 @@ namespace OpenTextIntegrationAPI.Controllers
         MultipartHeadersLengthLimit = int.MaxValue,
         ValueLengthLimit = int.MaxValue)]
         public async Task<IActionResult> CreateDocumentNodeAsync(
-        [FromQuery] string? boType,
-        [FromQuery] string? boId,
-        [FromQuery] string? docName,
+        string? boType,
+        string? boId,
+        string? docName,
         IFormFile? file,
-        [FromQuery] DateTime? expirationDate = null,
-        [FromQuery] string? documentType = null)
+        DateTime? expirationDate = null,
+        string? documentType = null)
         {
-            // ------------- request inspection (no extra reads) -------------
+            // Start stopwatch for performance measurement
+            var sw = Stopwatch.StartNew(); 
+            _logger.Log("Starting CreateDocumentNodeAsync...", LogLevel.INFO);
+
+            // Log method entry with parameters
             _logger.Log($"CreateDocumentNodeAsync called for BO: {boType}/{boId}, Document: {docName}", LogLevel.INFO);
             _logger.Log("---- ENTER CreateDocumentNodeAsync ----", LogLevel.DEBUG);
 
-            // ---------------------------------------------------------------------------
-            // EXTENSIVE REQUEST DUMP (only runs in DEBUG/TEST  – wrap as you need)
-            // ---------------------------------------------------------------------------
-
-            // Let us re‑read the body safely
+            // Enable buffering to allow multiple reads of the request body
             Request.EnableBuffering();
 
+            // Read raw request body as string for logging
             string rawBody;
             using (var sr = new StreamReader(Request.Body,
                                              encoding: Encoding.UTF8,
@@ -227,7 +229,7 @@ namespace OpenTextIntegrationAPI.Controllers
                 Request.Body.Position = 0;                             // rewind for the model‑binder
             }
 
-            // Try to parse form without triggering a second body read
+            // Attempt to parse form data without triggering a second body read
             IFormCollection? form = null;
             try
             {
@@ -239,7 +241,7 @@ namespace OpenTextIntegrationAPI.Controllers
                 _logger.Log($"Form parse failed: {ex.Message}", LogLevel.WARNING);
             }
 
-            // Build a full snapshot
+            // Build a full snapshot of the request for logging
             var dump = new
             {
                 Method = Request.Method,
@@ -264,7 +266,7 @@ namespace OpenTextIntegrationAPI.Controllers
                 RawBody = rawBody            // ⚠ large; remove if size is an issue
             };
 
-            // Persist the dump (pretty‑printed) using your existing logger
+            // Persist the dump (pretty‑printed) using the logger
             _logger.LogRawInbound(
                 $"sap_is_dump_{Guid.NewGuid():N}",
                 JsonSerializer.Serialize(dump, new JsonSerializerOptions
@@ -273,10 +275,11 @@ namespace OpenTextIntegrationAPI.Controllers
                 })
             );
 
+            // Log request size limits for debugging
             _logger.Log($"MaxRequestBodySize feature: {HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>()?.MaxRequestBodySize}", LogLevel.DEBUG);
             _logger.Log($"Content-Length header: {Request.Headers.ContentLength}", LogLevel.DEBUG);
 
-            //IFormCollection form = null!;
+            // Attempt to read form keys and files for logging
             try
             {
                 form = Request.HasFormContentType ? Request.Form : null;
@@ -289,7 +292,7 @@ namespace OpenTextIntegrationAPI.Controllers
                 return StatusCode(400, $"Unable to read multipart body: {ex.Message}");
             }
 
-            // Fill gaps if SAP IS sent fields inside the form body
+            // Fill missing parameters from form data if available
             if (form is not null)
             {
                 boType ??= form["boType"].FirstOrDefault();
@@ -306,14 +309,14 @@ namespace OpenTextIntegrationAPI.Controllers
                 file ??= form.Files.FirstOrDefault();
             }
 
-            // Get ticket from Request
+            // Extract authentication ticket from request
             string ticket = "";
             try
             {
                 _logger.Log("Extracting authentication ticket from request", LogLevel.DEBUG);
                 ticket = _authManager.ExtractTicket(Request);
 
-                // Log successful ticket extraction (with masked ticket)
+                // Log masked ticket for security
                 if (ticket != null && ticket.Length > 12)
                 {
                     string maskedTicket = ticket.Substring(0, 8) + "..." + ticket.Substring(ticket.Length - 4);
@@ -325,11 +328,11 @@ namespace OpenTextIntegrationAPI.Controllers
                 _logger.LogException(ex, LogLevel.ERROR);
                 _logger.Log($"Error extracting authentication ticket: {ex.Message}", LogLevel.ERROR);
 
-                // Return a 401 status code if auth fails
+                // Return 401 Unauthorized if extraction fails
                 return StatusCode(401, $"Error creating node {ex.Message}");
             }
 
-            // Validate input parameters
+            // Validate input parameters and log warnings if invalid
             _logger.Log("Validating input parameters", LogLevel.DEBUG);
             try
             {
@@ -370,12 +373,12 @@ namespace OpenTextIntegrationAPI.Controllers
                 return BadRequest(ex.Message);
             }
 
-            // Validate and format BO Type and ID
+            // Validate and format Business Object parameters
             _logger.Log($"Validating and formatting BO parameters: {boType}/{boId}", LogLevel.DEBUG);
             var (validatedBoType, formattedBoId) = CRBusinessWorkspace.ValidateAndFormatBoParams(boType, boId);
             _logger.Log($"Validated BO parameters: {validatedBoType}/{formattedBoId}", LogLevel.DEBUG);
 
-            // Search for parent business workspace
+            // Search for parent business workspace by BO ID
             string parentId;
             try
             {
@@ -392,13 +395,13 @@ namespace OpenTextIntegrationAPI.Controllers
 
             string nodeCreationJson = "";
 
-            // Validates expiration date
+            // Process expiration date if provided
             if (expirationDate.HasValue)
             {
                 _logger.Log($"Processing expiration date: {expirationDate.Value}", LogLevel.DEBUG);
                 string formattedExpirationDate = expirationDate.Value.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture);
 
-                // Attempt to parse the formatted string exactly with the given format
+                // Validate expiration date format
                 if (DateTime.TryParseExact(formattedExpirationDate,
                                         "yyyy-MM-ddTHH:mm:ss",
                                         CultureInfo.InvariantCulture,
@@ -409,7 +412,7 @@ namespace OpenTextIntegrationAPI.Controllers
                     var expDateCatId = await _csUtilities.GetExpirationDateCatIdAsync(ticket);
                     _logger.Log($"Expiration date category ID: {expDateCatId}", LogLevel.DEBUG);
 
-                    // Build the JSON object for node creation (Document subtype = 144) with expiration date
+                    // Build JSON for node creation with expiration date category
                     var nodeCreationObjectWE = new
                     {
                         type = 144,           // Document subtype
@@ -434,7 +437,7 @@ namespace OpenTextIntegrationAPI.Controllers
             }
             else
             {
-                // Build the JSON object for node creation (Document subtype = 144) without expiration date
+                // Build JSON for node creation without expiration date
                 var nodeCreationObjectNE = new
                 {
                     type = 144,           // Document subtype
@@ -445,8 +448,8 @@ namespace OpenTextIntegrationAPI.Controllers
                 _logger.Log("Created node creation JSON without expiration date", LogLevel.DEBUG);
             }
 
-            // Log request details (excluding file content for size reasons)
-            _logger.LogRawInbound("inbound_request_create_document_node",
+            // Log request details excluding file content for size reasons
+            _logger.LogRawOutbound("request_create_document_node",
                 System.Text.Json.JsonSerializer.Serialize(new
                 {
                     boType = validatedBoType,
@@ -462,48 +465,48 @@ namespace OpenTextIntegrationAPI.Controllers
                 })
             );
 
-            // Build the URL for the POST /v2/nodes endpoint
+            // Build URL for node creation endpoint
             var baseUrl = _settings.BaseUrl;
             var createUrl = $"{baseUrl}/api/v2/nodes";
             _logger.Log($"Node creation URL: {createUrl}", LogLevel.DEBUG);
 
-            // Create the HttpRequestMessage
+            // Create HTTP POST request message
             using var requestMessage = new HttpRequestMessage(HttpMethod.Post, createUrl);
             requestMessage.Headers.Add("OTCSTICKET", ticket);
 
-            // Build the multipart/form-data content
+            // Build multipart/form-data content for request
             using var formDataContent = new MultipartFormDataContent();
 
-            // Part A: "body" part containing the JSON string
+            // Add JSON body part
             var bodyContent = new StringContent(nodeCreationJson, Encoding.UTF8, "text/plain");
             formDataContent.Add(bodyContent, "body");
 
-            // Part B: "file" part containing the file's binary content
+            // Add file content part
             using var fileStream = file.OpenReadStream();
             var fileContent = new StreamContent(fileStream);
             fileContent.Headers.ContentType = new MediaTypeHeaderValue(
                 !string.IsNullOrWhiteSpace(file.ContentType) ? file.ContentType : "application/octet-stream");
             formDataContent.Add(fileContent, "file", Uri.EscapeDataString(file.FileName));
 
-            // Attach the multipart content to the request
+            // Attach multipart content to request
             requestMessage.Content = formDataContent;
 
             HttpResponseMessage response;
             try
             {
-                // Send the request
+                // Send the request to create the document node
                 _logger.Log($"Sending request to create document node: {docName}", LogLevel.DEBUG);
                 response = await _httpClient.SendAsync(requestMessage);
 
-                // Read response content
+                // Read response content as string
                 var responseJson = await response.Content.ReadAsStringAsync();
 
-                // Log raw API response (note: not logging full response content as it could be large)
-                _logger.LogRawInbound("inbound_response_create_document_node",
+                // Log raw inbound response with status and content length (not full content)
+                _logger.LogRawOutbound("response_create_document_node",
                     $"Status: {response.StatusCode}, Content length: {responseJson.Length}"
                 );
 
-                // Verify that the response was successful
+                // Check if response indicates success
                 if (!response.IsSuccessStatusCode)
                 {
                     _logger.Log($"CreateDocumentNode failed with status code {response.StatusCode}", LogLevel.ERROR);
@@ -512,7 +515,7 @@ namespace OpenTextIntegrationAPI.Controllers
 
                 _logger.Log("Document node created successfully, parsing response", LogLevel.DEBUG);
 
-                // Parse the JSON response to retrieve the newly created node's details
+                // Parse JSON response to extract node details
                 var nodeResponse = new CreateDocumentNodeResponse();
                 try
                 {
@@ -546,7 +549,7 @@ namespace OpenTextIntegrationAPI.Controllers
 
                     _logger.Log($"Successfully parsed node response. Node ID: {nodeResponse.NodeId}, Name: {nodeResponse.Name}", LogLevel.DEBUG);
 
-                    // Apply classification to the created document
+                    // Apply classification to the created document node
                     if (!string.IsNullOrEmpty(createdNodeId))
                     {
                         _logger.Log($"Applying classification {documentType} to node {createdNodeId}", LogLevel.DEBUG);
@@ -563,19 +566,26 @@ namespace OpenTextIntegrationAPI.Controllers
                 }
                 catch (Exception ex)
                 {
+                    // Log any errors during parsing or classification
                     _logger.LogException(ex, LogLevel.ERROR);
                     _logger.Log($"Error parsing node response: {ex.Message}", LogLevel.ERROR);
                     nodeResponse.Message = "Node Created but error retrieving node Id.";
                 }
 
-                // Log the final result
+                // Log completion of document node creation
                 _logger.Log($"Document node creation completed. NodeId: {nodeResponse.NodeId}, Name: {nodeResponse.Name}", LogLevel.INFO);
 
-                // Return the parsed node response
+                // Log the time taken for the operation
+                sw.Stop();
+                _logger.Log($"CreateDocumentNodeAsync finished in {sw.ElapsedMilliseconds} ms", LogLevel.INFO);
+
+
+                // Return the node response object
                 return Ok(nodeResponse);
             }
             catch (Exception ex)
             {
+                // Log exceptions during node creation request
                 _logger.LogException(ex, LogLevel.ERROR);
                 _logger.Log($"Error creating document node: {ex.Message}", LogLevel.ERROR);
                 return StatusCode(500, $"Could not send CreateDocumentNode request: {ex.Message}");
@@ -601,14 +611,15 @@ namespace OpenTextIntegrationAPI.Controllers
         {
             _logger.Log($"DeleteNode called for ID: {nodeId}", LogLevel.INFO);
 
-            // Get ticket from Request
+            // Initialize ticket variable
             string ticket = "";
             try
             {
+                // Extract authentication ticket from request
                 _logger.Log("Extracting authentication ticket from request", LogLevel.DEBUG);
                 ticket = _authManager.ExtractTicket(Request);
 
-                // Log successful ticket extraction (with masked ticket)
+                // Log masked ticket for security
                 if (ticket != null && ticket.Length > 12)
                 {
                     string maskedTicket = ticket.Substring(0, 8) + "..." + ticket.Substring(ticket.Length - 4);
@@ -617,32 +628,31 @@ namespace OpenTextIntegrationAPI.Controllers
             }
             catch (Exception ex)
             {
+                // Log exception and return 401 Unauthorized if extraction fails
                 _logger.LogException(ex, LogLevel.ERROR);
                 _logger.Log($"Error extracting authentication ticket: {ex.Message}", LogLevel.ERROR);
-
-                // Return a 401 status code if auth fails
                 return StatusCode(401, $"Error deleting node {nodeId}: {ex.Message}");
             }
 
             try
             {
-                // Log request details
-                _logger.LogRawInbound("inbound_request_delete_node",
+                // Log inbound request details with node ID
+                _logger.LogRawOutbound("request_delete_node",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         nodeId
                     })
                 );
 
-                // Call the service method to delete the node
+                // Call service to delete node by ID using the ticket
                 _logger.Log($"Calling DeleteNodeAsync for node ID: {nodeId}", LogLevel.DEBUG);
                 await _csNode.DeleteNodeAsync(nodeId, ticket);
 
                 // Log successful deletion
                 _logger.Log($"Successfully deleted node with ID: {nodeId}", LogLevel.INFO);
 
-                // Log response details
-                _logger.LogRawInbound("inbound_response_delete_node",
+                // Log response indicating success
+                _logger.LogRawOutbound("response_delete_node",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         status = "success",
@@ -650,15 +660,16 @@ namespace OpenTextIntegrationAPI.Controllers
                     })
                 );
 
+                // Return success message with 200 OK
                 return Ok($"Node {nodeId} deleted succesfully");
             }
             catch (Exception ex)
             {
+                // Log exception and error response details
                 _logger.LogException(ex, LogLevel.ERROR);
                 _logger.Log($"Error deleting node: {ex.Message}", LogLevel.ERROR);
 
-                // Log error response
-                _logger.LogRawApi("api_response_delete_node_error",
+                _logger.LogRawOutbound("response_delete_node_error",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         error = ex.Message,
@@ -666,7 +677,7 @@ namespace OpenTextIntegrationAPI.Controllers
                     })
                 );
 
-                // Return a 500 status code if something unexpected happens
+                // Return 500 Internal Server Error on failure
                 return StatusCode(500, $"Error deleting node {nodeId}: {ex.Message}");
             }
         }

@@ -4,6 +4,7 @@
     {
         public string BoType { get; set; } = string.Empty;
         public string BoId { get; set; } = string.Empty;
-        public string BwName { get; set; } = string.Empty; // Solo para BUS1006
+        public string BwName { get; set; } = string.Empty;
+        public string docCount { get; set; } = string.Empty;
     }
 }

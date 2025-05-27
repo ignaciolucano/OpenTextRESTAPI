@@ -1,4 +1,11 @@
-﻿using System;
+﻿// ============================================================================
+// File: SwaggerFilters.cs
+// Description: Adds custom Swagger documentation metadata dynamically from appsettings.
+// Author: Ignacio Lucano
+// Date: 2025-05-14
+// ============================================================================
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Extensions.Configuration;
@@ -8,156 +15,184 @@ using Swashbuckle.AspNetCore.SwaggerGen;
 
 namespace OpenTextIntegrationAPI.Models.Filter
 {
+    #region Swagger Operation Filter
+
+    /// <summary>
+    /// Applies custom summaries, descriptions, and parameters to Swagger endpoints.
+    /// Reads values from the "Swagger" section of appsettings.json.
+    /// </summary>
     public class SwaggerFilters : IOperationFilter
     {
         private readonly IConfiguration _config;
 
+        /// <summary>
+        /// Constructor for injecting IConfiguration.
+        /// </summary>
+        /// <param name="config">The application configuration object.</param>
         public SwaggerFilters(IConfiguration config)
         {
             _config = config;
         }
 
+        /// <summary>
+        /// Applies dynamic Swagger metadata (summaries, descriptions, headers, etc.) to each endpoint.
+        /// </summary>
+        /// <param name="operation">The Swagger operation being processed.</param>
+        /// <param name="context">The context for the operation.</param>
         public void Apply(OpenApiOperation operation, OperationFilterContext context)
         {
+            // Get controller and action names
             var controller = context.ApiDescription.ActionDescriptor.RouteValues["controller"];
             var action = context.ApiDescription.ActionDescriptor.RouteValues["action"];
 
-            // GET /v1/Nodes/{id}
+            #region Endpoint Descriptions
+
+            // Apply custom Swagger summaries/descriptions based on controller/action
             if (controller == "Nodes" && action == "GetNode")
             {
-                operation.Summary = _config["Swagger:NodeGet:Summary"] ?? operation.Summary;
-                operation.Description = _config["Swagger:NodeGet:Description"] ?? operation.Description;
+                ApplySummary(operation, "Swagger:NodeGet");
             }
-            // DELETE /v1/Nodes/{nodeId}
             else if (controller == "Nodes" && action == "DeleteNode")
             {
-                operation.Summary = _config["Swagger:NodeDelete:Summary"] ?? operation.Summary;
-                operation.Description = _config["Swagger:NodeDelete:Description"] ?? operation.Description;
+                ApplySummary(operation, "Swagger:NodeDelete");
             }
-            // POST /api/Auth/login
             else if (controller == "Auth" && action == "Login")
             {
-                operation.Summary = _config["Swagger:AuthLogin:Summary"] ?? operation.Summary;
-                operation.Description = _config["Swagger:AuthLogin:Description"] ?? operation.Description;
+                ApplySummary(operation, "Swagger:AuthLogin");
             }
-            // GET /v1/ChangeRequest/{id}/documents
             else if (controller == "ChangeRequest" && action == "GetDocumentsChangeRequest")
             {
-                operation.Summary = _config["Swagger:ChangeRequestGet:Summary"] ?? operation.Summary;
-                operation.Description = _config["Swagger:ChangeRequestGet:Description"] ?? operation.Description;
+                ApplySummary(operation, "Swagger:ChangeRequestGet");
             }
-            // PUT /v1/ChangeRequest/{id}
             else if (controller == "ChangeRequest" && action == "UpdateChangeRequestData")
             {
-                operation.Summary = _config["Swagger:ChangeRequestUpdate:Summary"] ?? operation.Summary;
-                operation.Description = _config["Swagger:ChangeRequestUpdate:Description"] ?? operation.Description;
+                ApplySummary(operation, "Swagger:ChangeRequestUpdate");
             }
-            // POST /v1/ChangeRequest/{id}/approve
             else if (controller == "ChangeRequest" && action == "ApproveChangeRequest")
             {
-                operation.Summary = _config["Swagger:ChangeRequestApprove:Summary"] ?? operation.Summary;
-                operation.Description = _config["Swagger:ChangeRequestApprove:Description"] ?? operation.Description;
+                ApplySummary(operation, "Swagger:ChangeRequestApprove");
             }
-            // POST /v1/ChangeRequest/{id}/reject
             else if (controller == "ChangeRequest" && action == "RejectChangeRequest")
             {
-                operation.Summary = _config["Swagger:ChangeRequestReject:Summary"] ?? operation.Summary;
-                operation.Description = _config["Swagger:ChangeRequestReject:Description"] ?? operation.Description;
+                ApplySummary(operation, "Swagger:ChangeRequestReject");
             }
-            // GET /v1/MasterData/documents
             else if (controller == "MasterData" && action == "GetMasterDataDocuments")
             {
-                operation.Summary = _config["Swagger:MasterDataGet:Summary"] ?? operation.Summary;
-                operation.Description = _config["Swagger:MasterDataGet:Description"] ?? operation.Description;
+                ApplySummary(operation, "Swagger:MasterDataGet");
             }
-            // SimpleMDGAssets endpoints...
             else if (controller == "SimpleMDGAssets")
             {
                 switch (action)
                 {
                     case "UpsertGlobalLogo":
-                        operation.Summary = _config["Swagger:UpsertGlobalLogo:Summary"] ?? operation.Summary;
-                        operation.Description = _config["Swagger:UpsertGlobalLogo:Description"] ?? operation.Description;
+                        ApplySummary(operation, "Swagger:UpsertGlobalLogo");
                         break;
                     case "GetGlobalLogo":
-                        operation.Summary = _config["Swagger:GetGlobalLogo:Summary"] ?? operation.Summary;
-                        operation.Description = _config["Swagger:GetGlobalLogo:Description"] ?? operation.Description;
+                        ApplySummary(operation, "Swagger:GetGlobalLogo");
                         break;
                     case "DeleteGlobalLogo":
-                        operation.Summary = _config["Swagger:DeleteGlobalLogo:Summary"] ?? operation.Summary;
-                        operation.Description = _config["Swagger:DeleteGlobalLogo:Description"] ?? operation.Description;
+                        ApplySummary(operation, "Swagger:DeleteGlobalLogo");
                         break;
                     case "CreateBackgroundImage":
-                        operation.Summary = _config["Swagger:CreateBackgroundImage:Summary"] ?? operation.Summary;
-                        operation.Description = _config["Swagger:CreateBackgroundImage:Description"] ?? operation.Description;
+                        ApplySummary(operation, "Swagger:CreateBackgroundImage");
                         break;
                     case "GetBackgroundImageByName":
-                        operation.Summary = _config["Swagger:GetBackgroundImageByName:Summary"] ?? operation.Summary;
-                        operation.Description = _config["Swagger:GetBackgroundImageByName:Description"] ?? operation.Description;
+                        ApplySummary(operation, "Swagger:GetBackgroundImageByName");
                         break;
                     case "UpdateBackgroundImageByName":
-                        operation.Summary = _config["Swagger:UpdateBackgroundImageByName:Summary"] ?? operation.Summary;
-                        operation.Description = _config["Swagger:UpdateBackgroundImageByName:Description"] ?? operation.Description;
+                        ApplySummary(operation, "Swagger:UpdateBackgroundImageByName");
                         break;
                     case "ListBackgroundImages":
-                        operation.Summary = _config["Swagger:ListBackgroundImages:Summary"] ?? operation.Summary;
-                        operation.Description = _config["Swagger:ListBackgroundImages:Description"] ?? operation.Description;
+                        ApplySummary(operation, "Swagger:ListBackgroundImages");
                         break;
                     case "DeleteBackgroundImageByName":
-                        operation.Summary = _config["Swagger:DeleteBackgroundImageByName:Summary"] ?? operation.Summary;
-                        operation.Description = _config["Swagger:DeleteBackgroundImageByName:Description"] ?? operation.Description;
+                        ApplySummary(operation, "Swagger:DeleteBackgroundImageByName");
                         break;
                 }
             }
 
-            // POST /v1/Nodes/create
+            #endregion
+
+            #region Multipart Body Override for CreateDocumentNode
+
             if (controller == "Nodes" && action == "CreateDocumentNode")
             {
-                operation.Summary = _config["Swagger:CreateDocumentNode:Summary"] ?? operation.Summary;
-                operation.Description = _config["Swagger:CreateDocumentNode:Description"] ?? operation.Description;
+                ApplySummary(operation, "Swagger:CreateDocumentNode");
 
-                // remove auto-generated query/form parameters
-                operation.Parameters.Clear();
+                // Clear default parameter list
+                //operation.Parameters.Clear();
 
-                // inject multipart/form-data request body
-                operation.RequestBody = new OpenApiRequestBody
-                {
-                    Required = true,
-                    Content = new Dictionary<string, OpenApiMediaType>
-                    {
-                        ["multipart/form-data"] = new OpenApiMediaType
-                        {
-                            Schema = new OpenApiSchema
-                            {
-                                Type = "object",
-                                Properties = new Dictionary<string, OpenApiSchema>
-                                {
-                                    ["body"] = new OpenApiSchema
-                                    {
-                                        Description = "JSON payload describing the node properties",
-                                        Type = "string",
-                                        Format = "json",
-                                        Example = new OpenApiString(
-@"{
-  ""type"": 144,
-  ""parent_id"": ""12345"",
-  ""name"": ""mydoc.pdf"",
-  ""roles"": { ""98765_2"": ""2025-01-01T00:00:00"" }
-}")
-                                    },
-                                    ["file"] = new OpenApiSchema
-                                    {
-                                        Description = "PDF file to upload",
-                                        Type = "string",
-                                        Format = "binary"
-                                    }
-                                },
-                                Required = new HashSet<string> { "body", "file" }
-                            }
-                        }
-                    }
-                };
+                // Define a multipart/form-data schema
+                //operation.RequestBody = new OpenApiRequestBody
+                //{
+                //    Required = true,
+                //    Content = new Dictionary<string, OpenApiMediaType>
+                //    {
+                //        ["multipart/form-data"] = new OpenApiMediaType
+                //        {
+                //            Schema = new OpenApiSchema
+                //            {
+                //                Type = "object",
+                //                Properties = new Dictionary<string, OpenApiSchema>
+                //                {
+                //                    ["body"] = new OpenApiSchema
+                //                    {
+                //                        Description = "JSON payload describing the node properties",
+                //                        Type = "string",
+                //                        Format = "json",
+                //                        Example = new OpenApiString(
+                //                            @"{
+                //                              ""type"": 144,
+                //                              ""parent_id"": ""12345"",
+                //                              ""name"": ""mydoc.pdf"",
+                //                              ""roles"": { ""98765_2"": ""2025-01-01T00:00:00"" }
+                //                            }")
+                //                    },
+                //                    ["file"] = new OpenApiSchema
+                //                    {
+                //                        Description = "PDF file to upload",
+                //                        Type = "string",
+                //                        Format = "binary"
+                //                    }
+                //                },
+                //                Required = new HashSet<string> { "body", "file" }
+                //            }
+                //        }
+                //    }
+                //};
             }
+
+            #endregion
+
+            #region Global Custom Headers
+
+            // Add global trace ID header to all endpoints
+            operation.Parameters ??= new List<OpenApiParameter>();
+            operation.Parameters.Add(new OpenApiParameter
+            {
+                Name = "SimpleMDG_TraceLogID",
+                In = ParameterLocation.Header,
+                Required = false,
+                Description = "Optional Trace ID for request tracking from SimpleMDG",
+                Schema = new OpenApiSchema
+                {
+                    Type = "string",
+                    Example = new OpenApiString("AGgiCU8nuGvXDyArMzaRvx1DSkti")
+                }
+            });
+
+            #endregion
+        }
+
+        /// <summary>
+        /// Applies summary and description from appsettings using a configuration key.
+        /// </summary>
+        private void ApplySummary(OpenApiOperation operation, string configKey)
+        {
+            operation.Summary = _config[$"{configKey}:Summary"] ?? operation.Summary;
+            operation.Description = _config[$"{configKey}:Description"] ?? operation.Description;
         }
     }
+
+    #endregion
 }

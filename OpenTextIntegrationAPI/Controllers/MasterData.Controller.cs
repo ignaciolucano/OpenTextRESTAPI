@@ -84,7 +84,7 @@
                 }
 
                 // Log request details
-                _logger.LogRawInbound("inbound_request_get_masterdata",
+                _logger.LogRawOutbound("request_get_masterdata",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         boType = validatedBoType,
@@ -97,27 +97,27 @@
                 var docs = await _masterData.GetMasterDataDocumentsAsync(validatedBoType, formattedBoId, ticket);
 
                 // Check if documents were found
-                if (docs == null || (docs.Files?.Count == 0))
-                {
-                    _logger.Log($"No documents found for {boType}/{boId}", LogLevel.WARNING);
+                //if (docs == null || (docs.Files?.Count == 0))
+                //{
+                //    _logger.Log($"No documents found for {boType}/{boId}", LogLevel.WARNING);
 
                     // Log response for not found case
-                    _logger.LogRawInbound("inbound_response_get_masterdata_notfound",
-                        System.Text.Json.JsonSerializer.Serialize(new
-                        {
-                            status = "not_found",
-                            message = $"Could not get a node for {boId}"
-                        })
-                    );
+                //    _logger.LogRawInbound("response_get_masterdata_notfound",
+                //        System.Text.Json.JsonSerializer.Serialize(new
+                //        {
+                //            status = "not_found",
+                //            message = $"Could not get a node for {boId}"
+                //        })
+                //    );
 
-                    return NotFound($"Could not get a node for {boId}");
-                }
+                //    return NotFound($"Could not get a node for {boId}");
+                //}
 
                 // Log successful retrieval
                 _logger.Log($"Successfully retrieved {docs.Files?.Count ?? 0} master data documents for {boType}/{boId}", LogLevel.INFO);
 
                 // Log response details (with file names but not full content)
-                _logger.LogRawInbound("inbound_response_get_masterdata",
+                _logger.LogRawOutbound("response_get_masterdata",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         header = docs.Header,
@@ -142,7 +142,7 @@
                 }
 
                 // Log error response
-                _logger.LogRawInbound("inbound_response_get_masterdata_error",
+                _logger.LogRawInbound("response_get_masterdata_error",
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         error = ex.Message,

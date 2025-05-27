@@ -49,7 +49,7 @@ namespace OpenTextIntegrationAPI.Services
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
             req.Headers.Add("OTCSTICKET", ticket);
 
-            _logger.LogRawApi("api_request_get_classification",
+            _logger.LogRawOutbound("request_get_classification",
                 JsonSerializer.Serialize(new { nodeId, url }));
 
             using var resp = await _httpClient.SendAsync(
@@ -61,14 +61,14 @@ namespace OpenTextIntegrationAPI.Services
                 _logger.Log(
                     $"OTCS GET {url} → {(int)resp.StatusCode} {resp.ReasonPhrase}",
                     LogLevel.WARNING);
-                _logger.LogRawApi("api_response_get_classification_error", err);
+                _logger.LogRawOutbound("response_get_classification_error", err);
                 return null;
             }
 
             using var stream = await resp.Content.ReadAsStreamAsync();
             using var doc = await JsonDocument.ParseAsync(stream);
 
-            _logger.LogRawApi("api_response_get_classification_ok",
+            _logger.LogRawOutbound("response_get_classification_ok",
                 JsonSerializer.Serialize(doc.RootElement));
 
             // typical structure: { "data": [ { "id":123, "name":"Invoice" }, ... ] }
@@ -129,7 +129,7 @@ namespace OpenTextIntegrationAPI.Services
             request.Headers.Add("OTCSTICKET", ticket);
 
             // Log request details
-            _logger.LogRawApi("api_request_get_classifications",
+            _logger.LogRawOutbound("request_get_classifications",
                 JsonSerializer.Serialize(new { nodeId, url = wsChildNodesUrl }));
 
             // Send request
@@ -236,7 +236,7 @@ namespace OpenTextIntegrationAPI.Services
             AddTicketHeader(wsChildNodesRequest);
 
             // Log request details
-            _logger.LogRawApi("api_request_get_node_classifications",
+            _logger.LogRawOutbound("request_get_node_classifications",
                 JsonSerializer.Serialize(new { nodeId, url = wsChildNodesUrl }));
 
             // Send request
@@ -253,7 +253,7 @@ namespace OpenTextIntegrationAPI.Services
 
                     // Log error response if available
                     var errorContent = await wsChildNodesResponse.Content.ReadAsStringAsync();
-                    _logger.LogRawApi("api_response_get_node_classifications_error", errorContent);
+                    _logger.LogRawOutbound("response_get_node_classifications_error", errorContent);
 
                     return null;
                 }
@@ -269,7 +269,7 @@ namespace OpenTextIntegrationAPI.Services
             var wsChildNodesJson = await wsChildNodesResponse.Content.ReadAsStringAsync();
 
             // Log response
-            _logger.LogRawApi("api_response_get_node_classifications", wsChildNodesJson);
+            _logger.LogRawOutbound("response_get_node_classifications", wsChildNodesJson);
 
             // Parse response to NodeResponseClassifications object
             try
@@ -324,7 +324,7 @@ namespace OpenTextIntegrationAPI.Services
             AddTicketHeader(wsChildNodesRequest);
 
             // Log request details
-            _logger.LogRawApi("api_request_get_node_data",
+            _logger.LogRawOutbound("request_get_node_data",
                 JsonSerializer.Serialize(new { nodeId, url = wsChildNodesUrl }));
 
             // Send request
@@ -341,7 +341,7 @@ namespace OpenTextIntegrationAPI.Services
 
                     // Log error response if available
                     var errorContent = await wsChildNodesResponse.Content.ReadAsStringAsync();
-                    _logger.LogRawApi("api_response_get_node_data_error", errorContent);
+                    _logger.LogRawOutbound("response_get_node_data_error", errorContent);
 
                     return null;
                 }
@@ -357,7 +357,7 @@ namespace OpenTextIntegrationAPI.Services
             var wsChildNodesJson = await wsChildNodesResponse.Content.ReadAsStringAsync();
 
             // Log response
-            _logger.LogRawApi("api_response_get_node_data", wsChildNodesJson);
+            _logger.LogRawOutbound("response_get_node_data", wsChildNodesJson);
 
             // Parse response to NodeResponseClassifications object
             try
@@ -412,7 +412,7 @@ namespace OpenTextIntegrationAPI.Services
             AddTicketHeader(wsChildNodesRequest);
 
             // Log request details
-            _logger.LogRawApi("api_request_get_template_doc_types",
+            _logger.LogRawOutbound("request_get_template_doc_types",
                 JsonSerializer.Serialize(new { nodeId, url = wsChildNodesUrl }));
 
             // Send request
@@ -429,7 +429,7 @@ namespace OpenTextIntegrationAPI.Services
 
                     // Log error response if available
                     var errorContent = await wsChildNodesResponse.Content.ReadAsStringAsync();
-                    _logger.LogRawApi("api_response_get_template_doc_types_error", errorContent);
+                    _logger.LogRawOutbound("response_get_template_doc_types_error", errorContent);
 
                     return null;
                 }
@@ -445,7 +445,7 @@ namespace OpenTextIntegrationAPI.Services
             var wsChildNodesJson = await wsChildNodesResponse.Content.ReadAsStringAsync();
 
             // Log response
-            _logger.LogRawApi("api_response_get_template_doc_types", wsChildNodesJson);
+            _logger.LogRawOutbound("response_get_template_doc_types", wsChildNodesJson);
 
             // Parse response to DocumentTypeResponse object
             try
@@ -500,7 +500,7 @@ namespace OpenTextIntegrationAPI.Services
             AddTicketHeader(wsChildNodesRequest);
 
             // Log request details
-            _logger.LogRawApi("api_request_get_doc_types",
+            _logger.LogRawOutbound("request_get_doc_types",
                 JsonSerializer.Serialize(new { nodeId, url = wsChildNodesUrl }));
 
             // Send request
@@ -517,7 +517,7 @@ namespace OpenTextIntegrationAPI.Services
 
                     // Log error response if available
                     var errorContent = await wsChildNodesResponse.Content.ReadAsStringAsync();
-                    _logger.LogRawApi("api_response_get_doc_types_error", errorContent);
+                    _logger.LogRawOutbound("response_get_doc_types_error", errorContent);
 
                     return null;
                 }
@@ -533,7 +533,7 @@ namespace OpenTextIntegrationAPI.Services
             var wsChildNodesJson = await wsChildNodesResponse.Content.ReadAsStringAsync();
 
             // Log response
-            _logger.LogRawApi("api_response_get_doc_types", wsChildNodesJson);
+            _logger.LogRawOutbound("response_get_doc_types", wsChildNodesJson);
 
             // Try to deserialize the response (but we return null regardless)
             try
@@ -594,7 +594,7 @@ namespace OpenTextIntegrationAPI.Services
             string jsonBody = JsonSerializer.Serialize(classificationBody);
 
             // Log request details
-            _logger.LogRawApi("api_request_apply_classification", jsonBody);
+            _logger.LogRawOutbound("request_apply_classification", jsonBody);
 
             // Build form data content with the key "body" containing the JSON string
             var formValues = new Dictionary<string, string>
@@ -629,7 +629,7 @@ namespace OpenTextIntegrationAPI.Services
                     _logger.Log($"ApplyClassification failed with status {response.StatusCode}: {errorResponse}", LogLevel.ERROR);
 
                     // Log error response
-                    _logger.LogRawApi("api_response_apply_classification_error", errorResponse);
+                    _logger.LogRawOutbound("response_apply_classification_error", errorResponse);
 
                     throw new Exception($"ApplyClassification failed with status {response.StatusCode}: {errorResponse}");
                 }
@@ -638,7 +638,7 @@ namespace OpenTextIntegrationAPI.Services
                 string responseJson = await response.Content.ReadAsStringAsync();
 
                 // Log response
-                _logger.LogRawApi("api_response_apply_classification", responseJson);
+                _logger.LogRawOutbound("response_apply_classification", responseJson);
 
                 _logger.Log($"Successfully applied classification {catId} to node {nodeId}", LogLevel.INFO);
 
@@ -684,7 +684,7 @@ namespace OpenTextIntegrationAPI.Services
             AddTicketHeader(wsEDRequest);
 
             // Log token request details
-            _logger.LogRawApi("api_request_get_rm_token",
+            _logger.LogRawOutbound("request_get_rm_token",
                 JsonSerializer.Serialize(new { nodeId, url = urlToken }));
 
             // Send request for token
@@ -701,7 +701,7 @@ namespace OpenTextIntegrationAPI.Services
                     _logger.Log($"RM classification token request failed: {wsEDResponse.StatusCode} - {err}", LogLevel.ERROR);
 
                     // Log error response
-                    _logger.LogRawApi("api_response_get_rm_token_error", err);
+                    _logger.LogRawOutbound("response_get_rm_token_error", err);
 
                     throw new Exception($"RM Classification apply error on getting token with status {wsEDResponse.StatusCode}: {err}");
                 }
@@ -717,7 +717,7 @@ namespace OpenTextIntegrationAPI.Services
             var wsEDJson = await wsEDResponse.Content.ReadAsStringAsync();
 
             // Log token response
-            _logger.LogRawApi("api_response_get_rm_token", wsEDJson);
+            _logger.LogRawOutbound("response_get_rm_token", wsEDJson);
 
             // Extract RM token from response
             var rmToken = "";
@@ -773,7 +773,7 @@ namespace OpenTextIntegrationAPI.Services
             string jsonBody = JsonSerializer.Serialize(classificationBody);
 
             // Log request details
-            _logger.LogRawApi("api_request_apply_rm_classification", jsonBody);
+            _logger.LogRawOutbound("request_apply_rm_classification", jsonBody);
 
             // Build form data content with the key "body" containing the JSON string
             var formValues = new Dictionary<string, string>
@@ -808,7 +808,7 @@ namespace OpenTextIntegrationAPI.Services
                     _logger.Log($"RM classification failed with status {response.StatusCode}: {errorResponse}", LogLevel.ERROR);
 
                     // Log error response
-                    _logger.LogRawApi("api_response_apply_rm_classification_error", errorResponse);
+                    _logger.LogRawOutbound("response_apply_rm_classification_error", errorResponse);
 
                     throw new Exception($"ApplyClassification failed with status {response.StatusCode}: {errorResponse}");
                 }
@@ -817,7 +817,7 @@ namespace OpenTextIntegrationAPI.Services
                 string responseJson = await response.Content.ReadAsStringAsync();
 
                 // Log response
-                _logger.LogRawApi("api_response_apply_rm_classification", responseJson);
+                _logger.LogRawOutbound("response_apply_rm_classification", responseJson);
 
                 _logger.Log($"Successfully applied RM classification {catId} to node {nodeId}", LogLevel.INFO);
 
@@ -863,8 +863,8 @@ namespace OpenTextIntegrationAPI.Services
             AddTicketHeader(wsEDRequest);
 
             // Log request details
-            _logger.LogRawApi("api_request_get_exp_date_category",
-                JsonSerializer.Serialize(new { name = expDateName, url = wsEDUrl }));
+            //    JsonSerializer.Serialize(new { name = expDateName, url = wsEDUrl }));
+            _logger.LogRawOutbound("request_get_exp_date_category", JsonSerializer.Serialize(new { name = expDateName, url = wsEDUrl }));
 
             // Send request
             HttpResponseMessage wsEDResponse;
@@ -880,7 +880,7 @@ namespace OpenTextIntegrationAPI.Services
                     _logger.Log($"Expiration date category request failed: {wsEDResponse.StatusCode} - {err}", LogLevel.ERROR);
 
                     // Log error response
-                    _logger.LogRawApi("api_response_get_exp_date_category_error", err);
+                    _logger.LogRawOutbound("response_get_exp_date_category_error", err);
 
                     throw new Exception($"Business Workspace search failed with status {wsEDResponse.StatusCode}: {err}");
                 }
@@ -896,7 +896,7 @@ namespace OpenTextIntegrationAPI.Services
             var wsEDJson = await wsEDResponse.Content.ReadAsStringAsync();
 
             // Log response
-            _logger.LogRawApi("api_response_get_exp_date_category", wsEDJson);
+            _logger.LogRawOutbound("response_get_exp_date_category", wsEDJson);
 
             // Extract unique name ID from response
             string? expDateCatId = ExtractUniqueNameId(wsEDJson);
@@ -942,7 +942,7 @@ namespace OpenTextIntegrationAPI.Services
             AddTicketHeader(wsEDRequest);
 
             // Log request details
-            _logger.LogRawApi("api_request_get_unique_name",
+            _logger.LogRawOutbound("request_get_unique_name",
                 JsonSerializer.Serialize(new { name = uName, url = wsEDUrl }));
 
             // Send request
@@ -959,7 +959,7 @@ namespace OpenTextIntegrationAPI.Services
                     _logger.Log($"Unique name request failed: {wsEDResponse.StatusCode} - {err}", LogLevel.ERROR);
 
                     // Log error response
-                    _logger.LogRawApi("api_response_get_unique_name_error", err);
+                    _logger.LogRawOutbound("response_get_unique_name_error", err);
 
                     throw new Exception($"Unique Name search failed with status {wsEDResponse.StatusCode}: {err}");
                 }
@@ -975,7 +975,7 @@ namespace OpenTextIntegrationAPI.Services
             var wsEDJson = await wsEDResponse.Content.ReadAsStringAsync();
 
             // Log response
-            _logger.LogRawApi("api_response_get_unique_name", wsEDJson);
+            _logger.LogRawOutbound("response_get_unique_name", wsEDJson);
 
             // Extract unique name ID from response
             string? uniqueNameId = ExtractUniqueNameId(wsEDJson);

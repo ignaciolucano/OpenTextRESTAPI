@@ -97,7 +97,7 @@ namespace OpenTextIntegrationAPI.Services
             _logger.Log("Created workspace creation JSON body", LogLevel.DEBUG);
 
             // Log request details
-            _logger.LogRawApi("api_request_create_workspace", jsonBody);
+            _logger.LogRawOutbound("request_create_workspace", jsonBody);
 
             var content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
@@ -126,7 +126,7 @@ namespace OpenTextIntegrationAPI.Services
                     _logger.Log($"Business Workspace creation failed: {response.StatusCode} - {err}", LogLevel.ERROR);
 
                     // Log error response
-                    _logger.LogRawApi("api_response_create_workspace_error", err);
+                    _logger.LogRawOutbound("response_create_workspace_error", err);
 
                     throw new Exception($"Business Workspace creation failed with status {response.StatusCode}: {err}");
                 }
@@ -142,7 +142,7 @@ namespace OpenTextIntegrationAPI.Services
             var responseJson = await response.Content.ReadAsStringAsync();
 
             // Log response (limited to reasonable size)
-            _logger.LogRawApi("api_response_create_workspace",
+            _logger.LogRawOutbound("response_create_workspace",
                 responseJson.Length > 1000 ? responseJson.Substring(0, 1000) + "..." : responseJson);
 
             try
@@ -190,7 +190,7 @@ namespace OpenTextIntegrationAPI.Services
             _logger.Log($"Unique name request URL: {wsEDUrl}", LogLevel.DEBUG);
 
             // Log request details
-            _logger.LogRawApi("api_request_get_unique_name",
+            _logger.LogRawOutbound("request_get_unique_name",
                 JsonSerializer.Serialize(new { unique_name = uName, url = wsEDUrl }));
 
             HttpResponseMessage wsEDResponse;
@@ -206,7 +206,7 @@ namespace OpenTextIntegrationAPI.Services
                     _logger.Log($"Unique name search failed: {wsEDResponse.StatusCode} - {err}", LogLevel.ERROR);
 
                     // Log error response
-                    _logger.LogRawApi("api_response_get_unique_name_error", err);
+                    _logger.LogRawOutbound("response_get_unique_name_error", err);
 
                     throw new Exception($"Business Workspace search failed with status {wsEDResponse.StatusCode}: {err}");
                 }
@@ -222,7 +222,7 @@ namespace OpenTextIntegrationAPI.Services
             var wsEDJson = await wsEDResponse.Content.ReadAsStringAsync();
 
             // Log response
-            _logger.LogRawApi("api_response_get_unique_name", wsEDJson);
+            _logger.LogRawOutbound("response_get_unique_name", wsEDJson);
 
             string? UniqueNameId = ExtractUniqueNameId(wsEDJson);
 
@@ -446,7 +446,7 @@ namespace OpenTextIntegrationAPI.Services
             string jsonBody = JsonSerializer.Serialize(workspaceCreationBody);
 
             // Log request details (limited to reasonable size due to potentially large JSON)
-            _logger.LogRawApi("api_request_create_cr_workspace",
+            _logger.LogRawOutbound("request_create_cr_workspace",
                 jsonBody.Length > 1000 ? jsonBody.Substring(0, 1000) + "..." : jsonBody);
 
             var content = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -475,7 +475,7 @@ namespace OpenTextIntegrationAPI.Services
                     _logger.Log($"CR Business Workspace creation failed: {response.StatusCode} - {err}", LogLevel.ERROR);
 
                     // Log error response
-                    _logger.LogRawApi("api_response_create_cr_workspace_error", err);
+                    _logger.LogRawOutbound("response_create_cr_workspace_error", err);
 
                     throw new Exception($"Business Workspace creation failed with status {response.StatusCode}: {err}");
                 }
@@ -491,7 +491,7 @@ namespace OpenTextIntegrationAPI.Services
             var responseJson = await response.Content.ReadAsStringAsync();
 
             // Log response (limited to reasonable size)
-            _logger.LogRawApi("api_response_create_cr_workspace",
+            _logger.LogRawOutbound("response_create_cr_workspace",
                 responseJson.Length > 1000 ? responseJson.Substring(0, 1000) + "..." : responseJson);
 
             try
@@ -648,8 +648,8 @@ namespace OpenTextIntegrationAPI.Services
             string jsonBOCatBody = JsonSerializer.Serialize(crBOCategoryBody);
 
             // Log request details
-            _logger.LogRawApi("api_request_update_cr_category", jsonCatBody);
-            _logger.LogRawApi("api_request_update_cr_bo_category", jsonBOCatBody);
+            _logger.LogRawOutbound("request_update_cr_category", jsonCatBody);
+            _logger.LogRawOutbound("request_update_cr_bo_category", jsonBOCatBody);
 
             // Prepare content and requests for both categories
             var contentCat = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -689,13 +689,13 @@ namespace OpenTextIntegrationAPI.Services
                     _logger.Log($"CR category update failed: {responseCat.StatusCode} - {err}", LogLevel.ERROR);
 
                     // Log error response
-                    _logger.LogRawApi("api_response_update_cr_category_error", err);
+                    _logger.LogRawOutbound("response_update_cr_category_error", err);
 
                     throw new Exception($"Business Workspace update failed with status {responseCat.StatusCode}: {err}");
                 }
 
                 string responseCatJson = await responseCat.Content.ReadAsStringAsync();
-                _logger.LogRawApi("api_response_update_cr_category", responseCatJson);
+                _logger.LogRawOutbound("response_update_cr_category", responseCatJson);
             }
             catch (Exception ex) when (!(ex is Exception))
             {
@@ -718,13 +718,13 @@ namespace OpenTextIntegrationAPI.Services
                     _logger.Log($"BO category update failed: {responseBOCat.StatusCode} - {err}", LogLevel.ERROR);
 
                     // Log error response
-                    _logger.LogRawApi("api_response_update_cr_bo_category_error", err);
+                    _logger.LogRawOutbound("response_update_cr_bo_category_error", err);
 
                     throw new Exception($"Business Workspace update failed with status {responseBOCat.StatusCode}: {err}");
                 }
 
                 string responseBOCatJson = await responseBOCat.Content.ReadAsStringAsync();
-                _logger.LogRawApi("api_response_update_cr_bo_category", responseBOCatJson);
+                _logger.LogRawOutbound("response_update_cr_bo_category", responseBOCatJson);
             }
             catch (Exception ex) when (!(ex is Exception))
             {
@@ -906,7 +906,7 @@ namespace OpenTextIntegrationAPI.Services
             };
 
             // Log request details
-            _logger.LogRawApi("api_request_create_bo_relation",
+            _logger.LogRawOutbound("request_create_bo_relation",
                 JsonSerializer.Serialize(formData));
 
             // Create and configure request
@@ -931,13 +931,13 @@ namespace OpenTextIntegrationAPI.Services
                     _logger.Log($"BO relationship creation failed: {wsEDResponse.StatusCode} - {err}", LogLevel.ERROR);
 
                     // Log error response
-                    _logger.LogRawApi("api_response_create_bo_relation_error", err);
+                    _logger.LogRawOutbound("response_create_bo_relation_error", err);
 
                     throw new Exception($"Business Workspace search failed with status {wsEDResponse.StatusCode}: {err}");
                 }
 
                 var wsEDJson = await wsEDResponse.Content.ReadAsStringAsync();
-                _logger.LogRawApi("api_response_create_bo_relation", wsEDJson);
+                _logger.LogRawOutbound("response_create_bo_relation", wsEDJson);
 
                 _logger.Log("BO relationship created successfully", LogLevel.INFO);
             }

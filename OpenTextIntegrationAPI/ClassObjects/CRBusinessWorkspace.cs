@@ -106,7 +106,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             _logger.Log($"[SearchBusinessWorkspaceAsync] Request URL: {url}", LogLevel.DEBUG);
 
             // Log raw API request if enabled in settings
-            _logger.LogRawApi("opentext_request_search_workspace", JsonSerializer.Serialize(new { formattedBoId, extSystemId, url }));
+            _logger.LogRawOutbound("request_search_workspace", JsonSerializer.Serialize(new { formattedBoId, extSystemId, url }));
 
             // Execute the request
             _logger.Log("Sending HTTP request to OpenText API", LogLevel.TRACE);
@@ -116,7 +116,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             string json = await response.Content.ReadAsStringAsync();
 
             // Log raw API response if enabled in settings
-            _logger.LogRawApi("opentext_response_search_workspace", json);
+            _logger.LogRawOutbound("response_search_workspace", json);
 
             // Check for successful response
             if (!response.IsSuccessStatusCode)
@@ -184,7 +184,13 @@ namespace OpenTextIntegrationAPI.ClassObjects
             _logger.Log($"[SearchCRBusinessWorkspaceAsync] Requesting CR Business Workspace from: {url}", LogLevel.INFO);
 
             // Log raw API request if enabled in settings
-            _logger.LogRawApi("opentext_request_search_cr_workspace", JsonSerializer.Serialize(new { boType, formattedBoId, url }));
+            _logger.LogRawOutbound("request_search_cr_workspace",
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    boType,
+                    formattedBoId,
+                    url
+                }));
 
             // Execute the request
             _logger.Log("Sending HTTP request to OpenText API", LogLevel.TRACE);
@@ -194,7 +200,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             var json = await response.Content.ReadAsStringAsync();
 
             // Log raw API response
-            _logger.LogRawApi("opentext_response_search_cr_workspace", json);
+            _logger.LogRawOutbound("response_search_cr_workspace", json);
 
             // Check for successful response
             if (!response.IsSuccessStatusCode)
@@ -276,7 +282,8 @@ namespace OpenTextIntegrationAPI.ClassObjects
                     {
                         BoType = boType,
                         BoId = boId,
-                        BwName = workspaceName
+                        BwName = workspaceName,
+                        docCount = documents?.Count.ToString()
                     },
                     Files = documents
                 };

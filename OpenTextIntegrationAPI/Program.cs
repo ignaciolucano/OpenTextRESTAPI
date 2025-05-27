@@ -1,4 +1,10 @@
-﻿using Microsoft.AspNetCore.Builder;
+﻿// Program.cs
+// Entry point for the OpenText Integration REST API application
+// Configures services, middleware, Swagger, and logging pipeline
+// Author: [Your Name]
+// Date: [Current Date]
+
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
@@ -12,6 +18,7 @@ using OpenTextIntegrationAPI.Models;
 using OpenTextIntegrationAPI.Models.Filter;
 using OpenTextIntegrationAPI.Services;
 using OpenTextIntegrationAPI.Utilities;
+using OpenTextIntegrationAPI.Middlewares;
 using Swashbuckle.AspNetCore.Filters;
 using Swashbuckle.AspNetCore.SwaggerGen;
 using System;
@@ -22,66 +29,96 @@ using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
+#region ░░ SERVICE CONFIGURATION ░░
+
 //
-// 1) MVC + JSON + suppress automatic 400 so your action always runs
+// 1. Add MVC Controllers + JSON Settings
 //
 builder.Services
     .AddControllers()
     .ConfigureApiBehaviorOptions(opts =>
     {
+        // Disables automatic 400 response when model state is invalid
         opts.SuppressModelStateInvalidFilter = true;
     })
     .AddJsonOptions(opts =>
     {
+        // Prevents reference loops during JSON serialization
         opts.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+        // Ignores null values when serializing JSON
         opts.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
     });
 
 //
-// 2) Increase multipart and body‐size limits
+// 2. Increase Request Size Limits for File Uploads (Form Options + Kestrel + IIS)
 //
 builder.Services.Configure<FormOptions>(opts =>
 {
+    // Set maximum allowed length for form value
     opts.ValueLengthLimit = int.MaxValue;
+    // Set maximum allowed length for multipart headers
     opts.MultipartHeadersLengthLimit = int.MaxValue;
+    // Set maximum allowed length for multipart body (file uploads)
     opts.MultipartBodyLengthLimit = long.MaxValue;
 });
+
 builder.WebHost.ConfigureKestrel(opts =>
 {
+    // Set maximum request body size for Kestrel server
     opts.Limits.MaxRequestBodySize = long.MaxValue;
+    // Enable synchronous IO for compatibility with some logging or legacy code
+    opts.AllowSynchronousIO = true;
 });
+
 builder.Services.Configure<IISServerOptions>(opts =>
 {
+    // Set maximum request body size for IIS server
     opts.MaxRequestBodySize = long.MaxValue;
 });
 
 //
-// 3) Your application services, HTTP clients, logging, etc.
+// 3. Register Application Services, Configuration Bindings, and Logging
 //
+// Bind OpenText settings from configuration section
 builder.Services.Configure<OpenTextSettings>(builder.Configuration.GetSection("OpenText"));
+// Bind FileLogger options from configuration section
 builder.Services.Configure<FileLoggerOptions>(builder.Configuration.GetSection("FileLogger"));
 
+// Register HttpClient for AuthService
 builder.Services.AddHttpClient<AuthService>();
+// Register scoped services for dependency injection
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<AuthManager>();
 builder.Services.AddScoped<CSUtilities>();
 builder.Services.AddScoped<CRBusinessWorkspace>();
 builder.Services.AddScoped<MasterData>();
 builder.Services.AddScoped<Node>();
+builder.Services.AddScoped<MemberService>();
+
+// Register singleton logging service
 builder.Services.AddSingleton<ILogService, FileLoggerService>();
+// Register HTTP context accessor for accessing HTTP context in services
+builder.Services.AddHttpContextAccessor();
+
+#endregion
+
+#region ░░ SWAGGER + OPENAPI ░░
 
 //
-// 4) Swagger/OpenAPI + examples + operation filter
+// 4. Configure Swagger with Authentication, Descriptions, Examples, and Filters
 //
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(opts =>
 {
+    // Enable Swagger annotations for decorating API methods
     opts.EnableAnnotations();
+
+    // Define Swagger document info
     opts.SwaggerDoc("v1", new OpenApiInfo
     {
         Title = "OpenText Integration REST API",
         Version = "v1",
-        Description = "Florida Crystals - REST API to Integrate with third party applications",
+        Description = "Florida Crystals - REST API to Integrate with third-party applications",
         Contact = new OpenApiContact
         {
             Name = "Rapid Deployment Solutions",
@@ -90,6 +127,7 @@ builder.Services.AddSwaggerGen(opts =>
         }
     });
 
+    // Add security definition for Bearer token authentication
     opts.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Description = "Bearer {token}",
@@ -98,6 +136,8 @@ builder.Services.AddSwaggerGen(opts =>
         Type = SecuritySchemeType.ApiKey,
         Scheme = "Bearer"
     });
+
+    // Add security requirement to use Bearer token globally
     opts.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         [new OpenApiSecurityScheme
@@ -109,128 +149,106 @@ builder.Services.AddSwaggerGen(opts =>
             },
             In = ParameterLocation.Header,
             Scheme = "Bearer"
-        }
-        ] = new List<string>()
+        }] = new List<string>()
     });
 
+    // Customize operation IDs to use controller and method names
     opts.CustomOperationIds(api =>
         api.TryGetMethodInfo(out var mi) ? $"{mi.DeclaringType.Name}_{mi.Name}" : null
     );
+
+    // Customize schema IDs to use full type names with dots instead of plus signs
     opts.CustomSchemaIds(t => t.FullName.Replace("+", "."));
 
+    // Enable example filters for Swagger UI
     opts.ExampleFilters();
+
+    // Add custom operation filters for Swagger
     opts.OperationFilter<SwaggerFilters>();
 });
+
+// Register Swagger examples from assembly
 builder.Services.AddSwaggerExamplesFromAssemblyOf<InvalidParameterExample>();
 
+#endregion
+
+#region ░░ BUILD + STARTUP LOGGING ░░
+
 //
-// 5) Build & start the pipeline
+// 5. Build the Application and Log Startup
 //
 var app = builder.Build();
+
+// Retrieve the logging service from DI container
 var logger = app.Services.GetRequiredService<ILogService>();
+
+// Log application startup information
 logger.Log("Starting OpenText Integration API", LogLevel.INFO);
 logger.Log($"Environment: {app.Environment.EnvironmentName}", LogLevel.INFO);
 
+#endregion
+
+#region ░░ PIPELINE CONFIGURATION ░░
+
 //
-// 6) Conditionally apply virtual directory if hosted under IIS
+// 6. Apply Virtual Path for IIS Deployments
 //
 if (!app.Environment.IsDevelopment())
 {
+    // Use a base path for IIS hosting environment
     app.UsePathBase("/integrationRESTAPI");
 }
 
 //
-// 7) Swagger UI
+// 7. Enable Swagger UI
 //
 app.UseSwagger();
 app.UseSwaggerUI(opts =>
 {
     if (app.Environment.IsDevelopment())
     {
+        // Swagger endpoint for development environment
         opts.SwaggerEndpoint("/swagger/v1/swagger.json", "OpenText Integration v1");
     }
     else
     {
+        // Swagger endpoint for production or other environments with base path
         opts.SwaggerEndpoint("/integrationRESTAPI/swagger/v1/swagger.json", "OpenText Integration v1");
     }
+    // Set Swagger UI route prefix
     opts.RoutePrefix = "swagger";
 });
 
 //
-// 8) Skip your logging‐middleware on the multipart endpoint
-//
-//app.UseWhen(
-//    ctx => !(ctx.Request.Method == "POST"
-//             && ctx.Request.Path.StartsWithSegments("/v1/Nodes/create")
-//             && ctx.Request.HasFormContentType),
-//    branch => branch.UseMiddleware<RequestLoggingMiddleware>()
-//);
-
-//
-// 9) HTTPS redirect only if you truly want it (leave commented if Suite cannot do HTTPS)
+// 8. Enable HTTPS Redirection if required (usually disabled for Suite environments)
 //
 if (!app.Environment.IsDevelopment())
 {
+    // Uncomment to enable HTTPS redirection in non-development environments
     // app.UseHttpsRedirection();
 }
 
+//
+// 9. Routing, Authentication, Authorization
+//
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
+
+//
+// 10. Global Middleware for Full Request/Response Logging (Configured via appsettings)
+//
+app.UseMiddleware<RequestResponseLoggingMiddleware>();
+
+//
+// 11. Map Controller Routes
+//
 app.MapControllers();
 
+//
+// 12. Final Startup Log and Run
+//
 logger.Log("Application initialization complete", LogLevel.INFO);
 app.Run();
 
-//
-// --- SUPPORTING TYPES BELOW ---
-//
-
-/// <summary>
-/// Logs inbound requests; note we skip it on create‐document uploads above.
-/// </summary>
-public class RequestLoggingMiddleware
-{
-    private readonly RequestDelegate _next;
-    private readonly ILogService     _logger;
-    public RequestLoggingMiddleware(RequestDelegate next, ILogService logger)
-    {
-        _next   = next;
-        _logger = logger;
-    }
-
-    public async Task InvokeAsync(HttpContext ctx)
-    {
-        ctx.Request.EnableBuffering();
-
-        // Read the entire body into a local variable
-        using var sr = new StreamReader(
-            ctx.Request.Body,
-            encoding: Encoding.UTF8,
-            detectEncodingFromByteOrderMarks: false,
-            leaveOpen: true);
-        var requestBody = await sr.ReadToEndAsync();
-
-        // Rewind so the next middleware (and MVC) can still read it
-        ctx.Request.Body.Position = 0;
-
-        // Build your log payload, now using the local 'requestBody'
-        var info = new
-        {
-            Method      = ctx.Request.Method,
-            Path        = ctx.Request.Path,
-            QueryString = ctx.Request.QueryString.Value,
-            Body        = requestBody
-        };
-
-        // Write it out
-        _logger.LogRawInbound(
-            $"req_{Guid.NewGuid():N}",
-            JsonSerializer.Serialize(info, new JsonSerializerOptions { WriteIndented = true })
-        );
-
-        // Continue on
-        await _next(ctx);
-    }
-}
-
+#endregion
