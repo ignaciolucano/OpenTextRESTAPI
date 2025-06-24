@@ -34,6 +34,7 @@ namespace OpenTextIntegrationAPI.Models
         // If you need additional arrays like addable_types or available_actions, you can define them here.
         //public NodeData data { get; set; }
         public string file_name { get; set; }
+        public int file_size { get; set; }
         public int nodeId { get; set; }
         public int type { get; set; }
         public string type_name { get; set; }

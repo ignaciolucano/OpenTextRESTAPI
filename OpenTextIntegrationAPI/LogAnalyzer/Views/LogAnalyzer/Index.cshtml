@@ -1,0 +1,613 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OpenText Log Analyzer</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet" />
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" />
+    <style>
+        .timeline-item {
+            border-left: 3px solid #dee2e6;
+            padding-left: 1rem;
+            margin-bottom: 1rem;
+            position: relative;
+        }
+
+            .timeline-item::before {
+                content: '';
+                position: absolute;
+                left: -6px;
+                top: 0.5rem;
+                width: 9px;
+                height: 9px;
+                border-radius: 50%;
+                background: #6c757d;
+            }
+
+            .timeline-item.request::before {
+                background: #0d6efd;
+            }
+
+            .timeline-item.response::before {
+                background: #198754;
+            }
+
+            .timeline-item.error::before {
+                background: #dc3545;
+            }
+
+            .timeline-item.rawlog::before {
+                background: #fd7e14;
+            }
+
+            .timeline-item.authentication::before {
+                background: #6f42c1;
+            }
+
+        .log-level-trace {
+            color: #6c757d;
+        }
+
+        .log-level-debug {
+            color: #0dcaf0;
+        }
+
+        .log-level-info {
+            color: #0d6efd;
+        }
+
+        .log-level-warning {
+            color: #ffc107;
+        }
+
+        .log-level-error {
+            color: #dc3545;
+        }
+
+        .log-level-fatal {
+            color: #6f42c1;
+            background: #fff3cd;
+        }
+
+        .trace-card {
+            transition: transform 0.2s;
+            cursor: pointer;
+        }
+
+            .trace-card:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            }
+
+        .file-content {
+            max-height: 400px;
+            overflow-y: auto;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 0.375rem;
+            padding: 1rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.875rem;
+            white-space: pre-wrap;
+        }
+
+        .search-container {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem 0;
+            margin-bottom: 2rem;
+        }
+
+        .stats-card {
+            background: linear-gradient(45deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            border: none;
+        }
+
+        .loading-spinner {
+            display: none;
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        @@keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-search-plus me-2"></i>
+                OpenText Log Analyzer
+            </a>
+        </div>
+    </nav>
+
+    <div class="search-container">
+        <div class="container">
+            <div class="row">
+                <div class="col-12">
+                    <h2 class="text-center mb-4">
+                        <i class="fas fa-chart-line me-2"></i>
+                        Análisis de Logs OpenText API
+                    </h2>
+                    <div class="row g-3">
+                        <div class="col-md-3">
+                            <input type="text" id="searchInput" class="form-control form-control-lg"
+                                   placeholder="Buscar texto general..." />
+                        </div>
+                        <div class="col-md-2">
+                            <select id="boTypeFilter" class="form-select form-select-lg">
+                                <option value="">Todos los BO Types</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <input type="text" id="boIdFilter" class="form-control form-control-lg"
+                                   placeholder="BO ID (ej: 010498)" />
+                        </div>
+                        <div class="col-md-2">
+                            <select id="operationFilter" class="form-select form-select-lg">
+                                <option value="">Todas las operaciones</option>
+                            </select>
+                        </div>
+                        <div class="col-md-1">
+                            <select id="errorFilter" class="form-select form-select-lg">
+                                <option value="">Todos</option>
+                                <option value="true">Solo errores</option>
+                                <option value="false">Solo exitosos</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <button id="searchBtn" class="btn btn-light btn-lg w-100">
+                                <i class="fas fa-search"></i> Buscar
+                            </button>
+                        </div>
+                    </div>
+                    <div class="row g-3 mt-2">
+                        <div class="col-md-3">
+                            <input type="datetime-local" id="fromDate" class="form-control" />
+                        </div>
+                        <div class="col-md-3">
+                            <input type="datetime-local" id="toDate" class="form-control" />
+                        </div>
+                        <div class="col-md-3">
+                            <button id="clearFilters" class="btn btn-outline-light">
+                                <i class="fas fa-times"></i> Limpiar filtros
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Stats Row -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card stats-card">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">
+                            <i class="fas fa-list-ol"></i>
+                        </h5>
+                        <h3 id="totalTraces">0</h3>
+                        <p class="mb-0">Total Traces</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-success text-white">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">
+                            <i class="fas fa-check-circle"></i>
+                        </h5>
+                        <h3 id="successTraces">0</h3>
+                        <p class="mb-0">Exitosos</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-danger text-white">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </h5>
+                        <h3 id="errorTraces">0</h3>
+                        <p class="mb-0">Con Errores</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-info text-white">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">
+                            <i class="fas fa-clock"></i>
+                        </h5>
+                        <h3 id="avgDuration">0ms</h3>
+                        <p class="mb-0">Duración Promedio</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Spinner -->
+        <div class="text-center loading-spinner" id="loadingSpinner">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Cargando...</span>
+            </div>
+            <p class="mt-2">Analizando logs...</p>
+        </div>
+
+        <!-- Traces List -->
+        <div id="tracesContainer">
+            <div class="row" id="tracesList"></div>
+        </div>
+    </div>
+
+    <!-- Trace Detail Modal -->
+    <div class="modal fade" id="traceModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-timeline me-2"></i>
+                        Detalle del Trace: <span id="modalTraceId"></span>
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <strong>Business Object:</strong> <span id="modalBusinessObject">-</span>
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Operación:</strong> <span id="modalOperation">-</span>
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Inicio:</strong> <span id="modalStartTime">-</span>
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Duración:</strong> <span id="modalDuration">-</span>
+                        </div>
+                    </div>
+
+                    <ul class="nav nav-tabs" id="traceDetailTabs">
+                        <li class="nav-item">
+                            <a class="nav-link active" data-bs-toggle="tab" href="#timelineTab">
+                                <i class="fas fa-timeline"></i> Timeline
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-bs-toggle="tab" href="#requestTab">
+                                <i class="fas fa-arrow-up"></i> Request
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-bs-toggle="tab" href="#responseTab">
+                                <i class="fas fa-arrow-down"></i> Response
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-bs-toggle="tab" href="#mapTab">
+                                <i class="fas fa-map"></i> Map
+                            </a>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content mt-3">
+                        <div class="tab-pane fade show active" id="timelineTab">
+                            <div id="timelineContent"></div>
+                        </div>
+                        <div class="tab-pane fade" id="requestTab">
+                            <div id="requestContent" class="file-content"></div>
+                        </div>
+                        <div class="tab-pane fade" id="responseTab">
+                            <div id="responseContent" class="file-content"></div>
+                        </div>
+                        <div class="tab-pane fade" id="mapTab">
+                            <div id="mapContent" class="file-content"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let allTraces = [];
+        let filterOptions = {};
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function() {
+            loadFilterOptions();
+            loadTraces();
+
+            document.getElementById('searchBtn').addEventListener('click', loadTraces);
+            document.getElementById('clearFilters').addEventListener('click', clearFilters);
+            document.getElementById('searchInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') loadTraces();
+            });
+        });
+
+        async function loadFilterOptions() {
+            try {
+                const response = await fetch('/loganalyzer/api/filters');
+                filterOptions = await response.json();
+
+                // Populate BO Type dropdown
+                const boTypeSelect = document.getElementById('boTypeFilter');
+                filterOptions.boTypes.forEach(boType => {
+                    const option = document.createElement('option');
+                    option.value = boType;
+                    option.textContent = boType;
+                    boTypeSelect.appendChild(option);
+                });
+
+                // Populate Operation dropdown
+                const operationSelect = document.getElementById('operationFilter');
+                filterOptions.operations.forEach(operation => {
+                    const option = document.createElement('option');
+                    option.value = operation;
+                    option.textContent = operation;
+                    operationSelect.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Error loading filter options:', error);
+            }
+        }
+
+        function clearFilters() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('boTypeFilter').value = '';
+            document.getElementById('boIdFilter').value = '';
+            document.getElementById('operationFilter').value = '';
+            document.getElementById('errorFilter').value = '';
+            document.getElementById('fromDate').value = '';
+            document.getElementById('toDate').value = '';
+            loadTraces();
+        }
+
+        async function loadTraces() {
+            const searchInput = document.getElementById('searchInput');
+            const boTypeFilter = document.getElementById('boTypeFilter');
+            const boIdFilter = document.getElementById('boIdFilter');
+            const operationFilter = document.getElementById('operationFilter');
+            const errorFilter = document.getElementById('errorFilter');
+            const fromDate = document.getElementById('fromDate');
+            const toDate = document.getElementById('toDate');
+            const loadingSpinner = document.getElementById('loadingSpinner');
+            const tracesContainer = document.getElementById('tracesContainer');
+
+            loadingSpinner.style.display = 'block';
+            tracesContainer.style.display = 'none';
+
+            try {
+                const params = new URLSearchParams();
+                if (searchInput.value) params.append('search', searchInput.value);
+                if (boTypeFilter.value) params.append('boType', boTypeFilter.value);
+                if (boIdFilter.value) params.append('boId', boIdFilter.value);
+                if (operationFilter.value) params.append('operation', operationFilter.value);
+                if (errorFilter.value) params.append('hasErrors', errorFilter.value);
+                if (fromDate.value) params.append('from', fromDate.value);
+                if (toDate.value) params.append('to', toDate.value);
+
+                const response = await fetch(`/loganalyzer/api/traces?${params}`);
+                allTraces = await response.json();
+
+                updateStats();
+                renderTraces();
+            } catch (error) {
+                console.error('Error loading traces:', error);
+                alert('Error cargando los traces: ' + error.message);
+            } finally {
+                loadingSpinner.style.display = 'none';
+                tracesContainer.style.display = 'block';
+            }
+        }
+
+        function updateStats() {
+            document.getElementById('totalTraces').textContent = allTraces.length;
+
+            const errorTraces = allTraces.filter(t => t.hasErrors).length;
+            document.getElementById('errorTraces').textContent = errorTraces;
+            document.getElementById('successTraces').textContent = allTraces.length - errorTraces;
+
+            const avgDuration = allTraces.length > 0
+                ? Math.round(allTraces.reduce((sum, t) => sum + t.duration.totalMilliseconds, 0) / allTraces.length)
+                : 0;
+            document.getElementById('avgDuration').textContent = avgDuration + 'ms';
+        }
+
+        function renderTraces() {
+            const tracesList = document.getElementById('tracesList');
+            tracesList.innerHTML = '';
+
+            allTraces.forEach(trace => {
+                const hasErrors = trace.hasErrors;
+                const cardClass = hasErrors ? 'border-danger' : 'border-success';
+
+                const card = document.createElement('div');
+                card.className = 'col-md-6 col-lg-4 mb-3 fade-in';
+                card.innerHTML = `
+                    <div class="card trace-card ${cardClass}" onclick="showTraceDetail('${trace.traceId}')">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <small class="text-muted">${formatDateTime(trace.startTime)}</small>
+                            ${hasErrors ? '<i class="fas fa-exclamation-triangle text-danger"></i>' : '<i class="fas fa-check-circle text-success"></i>'}
+                        </div>
+                        <div class="card-body">
+                            <h6 class="card-title">
+                                <i class="fas fa-fingerprint me-1"></i>
+                                ${trace.traceId.substring(0, 8)}...
+                            </h6>
+                            <p class="card-text">
+                                <small class="text-muted">
+                                    <i class="fas fa-cog me-1"></i>
+                                    ${trace.operation || 'N/A'}
+                                </small><br>
+                                <small class="text-muted">
+                                    <i class="fas fa-cube me-1"></i>
+                                    ${trace.boType || 'N/A'}_${trace.boId || 'N/A'}
+                                </small><br>
+                                <small class="text-muted">
+                                    <i class="fas fa-clock me-1"></i>
+                                    ${Math.round(trace.duration.totalMilliseconds)}ms
+                                </small>
+                            </p>
+                        </div>
+                        <div class="card-footer">
+                            <small class="text-muted">${trace.entries.length} eventos</small>
+                        </div>
+                    </div>
+                `;
+                tracesList.appendChild(card);
+            });
+
+            if (allTraces.length === 0) {
+                tracesList.innerHTML = `
+                    <div class="col-12 text-center">
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            No se encontraron traces con los criterios especificados.
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        async function showTraceDetail(traceId) {
+            try {
+                const response = await fetch(`/loganalyzer/api/trace/${traceId}`);
+                const timeline = await response.json();
+
+                // Update modal header
+                document.getElementById('modalTraceId').textContent = traceId;
+                document.getElementById('modalBusinessObject').textContent =
+                    timeline.boType && timeline.boId ? `${timeline.boType}_${timeline.boId}` : 'N/A';
+                document.getElementById('modalOperation').textContent = timeline.operation || 'N/A';
+                document.getElementById('modalStartTime').textContent = formatDateTime(timeline.startTime);
+                document.getElementById('modalDuration').textContent = Math.round(timeline.duration.totalMilliseconds) + 'ms';
+
+                // Render timeline
+                renderTimeline(timeline.entries);
+
+                // Load file contents
+                const firstEntry = timeline.entries.find(e => e.requestFile || e.responseFile || e.mapFile);
+                if (firstEntry) {
+                    if (firstEntry.requestFile) {
+                        loadFileContent(firstEntry.requestFile, 'requestContent');
+                    }
+                    if (firstEntry.responseFile) {
+                        loadFileContent(firstEntry.responseFile, 'responseContent');
+                    }
+                    if (firstEntry.mapFile) {
+                        loadFileContent(firstEntry.mapFile, 'mapContent');
+                    }
+                }
+
+                // Show modal
+                const modal = new bootstrap.Modal(document.getElementById('traceModal'));
+                modal.show();
+            } catch (error) {
+                console.error('Error loading trace details:', error);
+                alert('Error cargando detalles del trace: ' + error.message);
+            }
+        }
+
+        function renderTimeline(entries) {
+            const timelineContent = document.getElementById('timelineContent');
+            timelineContent.innerHTML = '';
+
+            entries.forEach(entry => {
+                const timelineItem = document.createElement('div');
+                timelineItem.className = `timeline-item ${entry.type.toLowerCase()}`;
+
+                const typeIcon = getTypeIcon(entry.type);
+                const levelClass = `log-level-${entry.level.toLowerCase()}`;
+
+                timelineItem.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <h6 class="mb-1 ${levelClass}">
+                                ${typeIcon} ${entry.type} - ${entry.level}
+                            </h6>
+                            <p class="mb-1">${entry.message}</p>
+                            <small class="text-muted">
+                                <i class="fas fa-clock me-1"></i>
+                                ${formatDateTime(entry.timestamp)}
+                            </small>
+                            ${entry.boType ? `<br><small class="text-muted"><i class="fas fa-cube me-1"></i>${entry.boType}_${entry.boId || ''}</small>` : ''}
+                            ${entry.operation ? `<br><small class="text-muted"><i class="fas fa-cog me-1"></i>${entry.operation}</small>` : ''}
+                        </div>
+                        <div class="ms-3">
+                            ${entry.requestFile ? `<button class="btn btn-sm btn-outline-primary me-1" onclick="loadFileContent('${entry.requestFile}', 'requestContent')">REQ</button>` : ''}
+                            ${entry.responseFile ? `<button class="btn btn-sm btn-outline-success me-1" onclick="loadFileContent('${entry.responseFile}', 'responseContent')">RES</button>` : ''}
+                            ${entry.mapFile ? `<button class="btn btn-sm btn-outline-info me-1" onclick="loadFileContent('${entry.mapFile}', 'mapContent')">MAP</button>` : ''}
+                        </div>
+                    </div>
+                `;
+                timelineContent.appendChild(timelineItem);
+            });
+        }
+
+        async function loadFileContent(filePath, targetElementId) {
+            try {
+                const response = await fetch(`/loganalyzer/api/file/${encodeURIComponent(filePath)}`);
+                const data = await response.json();
+
+                document.getElementById(targetElementId).textContent = data.content;
+
+                // Switch to the appropriate tab
+                if (targetElementId === 'requestContent') {
+                    document.querySelector('[href="#requestTab"]').click();
+                } else if (targetElementId === 'responseContent') {
+                    document.querySelector('[href="#responseTab"]').click();
+                } else if (targetElementId === 'mapContent') {
+                    document.querySelector('[href="#mapTab"]').click();
+                }
+            } catch (error) {
+                console.error('Error loading file content:', error);
+                document.getElementById(targetElementId).textContent = 'Error cargando el archivo: ' + error.message;
+            }
+        }
+
+        function getTypeIcon(type) {
+            switch (type.toLowerCase()) {
+                case 'request': return '<i class="fas fa-arrow-up text-primary"></i>';
+                case 'response': return '<i class="fas fa-arrow-down text-success"></i>';
+                case 'error': return '<i class="fas fa-exclamation-triangle text-danger"></i>';
+                case 'rawlog': return '<i class="fas fa-file-alt text-warning"></i>';
+                case 'authentication': return '<i class="fas fa-key text-purple"></i>';
+                case 'classification': return '<i class="fas fa-tags text-info"></i>';
+                case 'node': return '<i class="fas fa-folder text-secondary"></i>';
+                default: return '<i class="fas fa-info-circle text-muted"></i>';
+            }
+        }
+
+        function formatDateTime(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleString('es-ES', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+    </script>
+</body>
+</html>

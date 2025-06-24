@@ -420,6 +420,7 @@ namespace OpenTextIntegrationAPI.Controllers
             Summary = "Deletes the global logo",
             Description = "Deletes the SimpleMDG global logo stored in OpenText"
         )]
+        [ApiExplorerSettings(IgnoreApi = true)]
         [SwaggerResponse(200, "OK")]
         [SwaggerResponse(401, "Authentication required")]
         [SwaggerResponse(404, "Logo not found")]
@@ -550,7 +551,7 @@ namespace OpenTextIntegrationAPI.Controllers
                 }
 
                 // 3. Create the new background image
-                _logger.Log($"Creating new background image: {displayName}", LogLevel.DEBUG);
+                _logger.Log($"Creating new background image: {displayName}Error processing request: Document type", LogLevel.DEBUG);
 
                 // Create object for node creation
                 var nodeCreationObject = new
@@ -755,6 +756,7 @@ namespace OpenTextIntegrationAPI.Controllers
             Summary = "Updates a background image by name",
             Description = "Updates an existing background image in OpenText by its name"
         )]
+        [ApiExplorerSettings(IgnoreApi = true)]
         [SwaggerResponse(200, "OK", typeof(BackgroundImageResponse))]
         [SwaggerResponse(400, "Invalid parameters")]
         [SwaggerResponse(401, "Authentication required")]
@@ -1112,6 +1114,7 @@ namespace OpenTextIntegrationAPI.Controllers
             Summary = "Deletes a background image by name",
             Description = "Deletes a specific background image from OpenText by its name"
         )]
+        [ApiExplorerSettings(IgnoreApi = true)]
         [SwaggerResponse(200, "OK")]
         [SwaggerResponse(401, "Authentication required")]
         [SwaggerResponse(404, "Image not found")]

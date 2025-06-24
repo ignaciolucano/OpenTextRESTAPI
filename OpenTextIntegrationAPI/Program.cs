@@ -52,6 +52,8 @@ builder.Services
 //
 // 2. Increase Request Size Limits for File Uploads (Form Options + Kestrel + IIS)
 //
+builder.Services.AddControllersWithViews();
+
 builder.Services.Configure<FormOptions>(opts =>
 {
     // Set maximum allowed length for form value
@@ -126,6 +128,8 @@ builder.Services.AddSwaggerGen(opts =>
             Url = new Uri("https://rds-consulting.com")
         }
     });
+
+    opts.DocInclusionPredicate((name, api) => !api.RelativePath.StartsWith("loganalyzer"));
 
     // Add security definition for Bearer token authentication
     opts.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -243,6 +247,17 @@ app.UseMiddleware<RequestResponseLoggingMiddleware>();
 //
 // 11. Map Controller Routes
 //
+// Log Analyzer Routes 
+app.MapControllerRoute(
+    name: "loganalyzer_default",
+    pattern: "loganalyzer",
+    defaults: new { controller = "LogAnalyzer", action = "Index" });
+
+app.MapControllerRoute(
+    name: "loganalyzer_api",
+    pattern: "loganalyzer/api/{action}/{id?}",
+    defaults: new { controller = "LogAnalyzer" });
+
 app.MapControllers();
 
 //

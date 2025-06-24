@@ -109,6 +109,79 @@ namespace OpenTextIntegrationAPI.Services
         }
 
         /// <summary>
+        /// Applies Records Management classification to a document
+        /// </summary>
+        /// <param name="nodeId">The ID of the document</param>
+        /// <param name="ticket">Authentication ticket (OTCSTICKET)</param>
+        /// <returns>True if classification was successfully applied</returns>
+        public async Task<bool> ApplyRecordsManagementClassification(int nodeId, string ticket)
+        {
+            try
+            {
+                _logger.Log($"Applying Records Management classification to node {nodeId}", LogLevel.DEBUG);
+
+                // Get the appropriate RM classification ID based on your organization's standards
+                // This would typically be a configuration value or determined by document type
+                int rmClassificationId = 12345; // Replace with actual RM classification ID
+
+                // Create request body
+                var requestBody = new
+                {
+                    add_classification = new
+                    {
+                        id = rmClassificationId,
+                        add_attributes = new Dictionary<string, object>
+                {
+                    // Add any required RM attributes here
+                    { "retention_period", "7 years" },
+                    { "record_date", DateTime.Now.ToString("yyyy-MM-dd") }
+                }
+                    }
+                };
+
+                // Convert request to JSON
+                string jsonContent = System.Text.Json.JsonSerializer.Serialize(requestBody);
+
+                // Create request URL
+                string url = $"{_settings.BaseUrl}/api/v1/nodes/{nodeId}/classifications";
+
+                // Create and configure the request
+                using var content = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json");
+                using var requestMessage = new HttpRequestMessage(HttpMethod.Post, url);
+                requestMessage.Headers.Add("OTCSTicket", ticket);
+                requestMessage.Content = content;
+
+                // Log the outbound request
+                _logger.LogRawOutbound("request_apply_rm_classification", jsonContent);
+
+                // Send the request
+                var response = await _httpClient.SendAsync(requestMessage);
+
+                // Get response content for logging
+                string responseContent = await response.Content.ReadAsStringAsync();
+
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogRawOutbound("response_apply_rm_classification_success", responseContent);
+                    _logger.Log($"Successfully applied Records Management classification to node {nodeId}", LogLevel.INFO);
+                    return true;
+                }
+                else
+                {
+                    _logger.LogRawOutbound("response_apply_rm_classification_error", responseContent);
+                    _logger.Log($"Failed to apply RM classification to node {nodeId}: {response.StatusCode} - {responseContent}", LogLevel.ERROR);
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogException(ex);
+                _logger.Log($"Exception applying RM classification to node {nodeId}: {ex.Message}", LogLevel.ERROR);
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Gets classification information for a node in OpenText Content Server.
         /// </summary>
         /// <param name="nodeId">ID of the node to retrieve classifications for</param>

@@ -5,6 +5,7 @@ using OpenTextIntegrationAPI.Models;
 using OpenTextIntegrationAPI.Services;
 using System.Diagnostics;
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 
 // This file contains the implementation for Change Request Business Workspace operations
@@ -95,7 +96,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
             // Construct the URL with query parameters for the OpenText API
             string baseUrl = _settings.BaseUrl;
-            string extSystemId = _settings.ExtSystemId;
+            string extSystemId = ""; // _settings.ExtSystemId;
             string url = $"{baseUrl}/api/v2/businessworkspaces?where_bo_type=BUS2250&where_column_query=name LIKE '{formattedBoId} -*'&where_ext_system_id={extSystemId}&expanded_view=true";
 
             // Create HTTP request with authentication ticket
@@ -174,7 +175,8 @@ namespace OpenTextIntegrationAPI.ClassObjects
             _logger.Log($"Parameters validated. Using formatted BO ID: {formattedBoId}", LogLevel.DEBUG);
 
             // Construct the URL with query parameters
-            string url = $"{_settings.BaseUrl}/api/v2/businessworkspaces?where_bo_type={boType}&where_column_query=name LIKE '{formattedBoId} -*'&where_ext_system_id={_settings.ExtSystemId}&expanded_view=true";
+            //string url = $"{_settings.BaseUrl}/api/v2/businessworkspaces?where_bo_type={boType}&where_column_query=name LIKE '{formattedBoId} -*'&where_ext_system_id={_settings.ExtSystemId}&expanded_view=true";
+            string url = $"{_settings.BaseUrl}/api/v2/businessworkspaces?where_bo_type={boType}&where_column_query=name LIKE '{formattedBoId} -*'&where_ext_system_id=&expanded_view=true";
 
             // Create HTTP request with authentication ticket
             var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -375,6 +377,35 @@ namespace OpenTextIntegrationAPI.ClassObjects
                         var nodeDoc = await _csUtilities.GetNodeClassifications(documentId, ticket);
                         int? classificationId = nodeDoc?.Data?.FirstOrDefault()?.Id;
 
+                        // Check if RM should be applied - handle string value from settings
+                        _logger.Log($"EnableRecordsManagement setting value: '{_settings.EnableRecordsManagement}'", LogLevel.DEBUG);
+
+                        bool enableRM = false;
+                        // Handle different possible types of the configuration value
+                        if (_settings.EnableRecordsManagement is bool boolValue)
+                        {
+                            enableRM = boolValue;
+                        }
+                        else
+                        {
+                            // Convertir a string y luego verificar si es "true"
+                            string strValue = _settings.EnableRecordsManagement?.ToString() ?? "false";
+                            enableRM = strValue.Equals("true", StringComparison.OrdinalIgnoreCase);
+                        }
+
+                        _logger.Log($"EnableRecordsManagement computed value: {enableRM}", LogLevel.DEBUG);
+
+                        // Apply Records Management classification if explicitly enabled
+                        if (enableRM)
+                        {
+                            _logger.Log($"Records Management is enabled - applying RM classifications", LogLevel.DEBUG);
+                            await _csUtilities.ApplyRecordsManagementClassification(documentId, ticket);
+                        }
+                        else
+                        {
+                            _logger.Log("Records Management is disabled - skipping RM classifications", LogLevel.DEBUG);
+                        }
+
                         // Determine destination folder based on document type
                         string trimmedBo = updateRequest.MainBOType.Length >= 7 ? updateRequest.MainBOType.Substring(0, 7) : updateRequest.MainBOType;
                         string docTypeString = $"{trimmedBo}.{classificationId}";
@@ -386,6 +417,25 @@ namespace OpenTextIntegrationAPI.ClassObjects
                         var wsOriginalBW = await _masterData.SearchBusinessWorkspaceAsync(updateRequest.MainBOType, updateRequest.MainBOId, ticket);
                         string? originalBWnodeId = wsOriginalBW?.results?.FirstOrDefault()?.data?.properties.id.ToString();
 
+                        // If original workspace doesn't exist, create it
+                        if (string.IsNullOrEmpty(originalBWnodeId))
+                        {
+                            _logger.Log($"Original Business Workspace not found. Creating new one for {updateRequest.MainBOType}/{updateRequest.MainBOId}", LogLevel.INFO);
+                            var createResponse = await workspaceService.CreateBusinessWorkspaceAsync(updateRequest.MainBOType, updateRequest.MainBOId);
+
+                            if (createResponse != null && createResponse.results != null && createResponse.results.Count > 0)
+                            {
+                                // Acceder al ID usando la estructura correcta
+                                originalBWnodeId = createResponse.results[0].data.properties.id.ToString();
+                                _logger.Log($"Created new Business Workspace with ID: {originalBWnodeId}", LogLevel.INFO);
+                            }
+                            else
+                            {
+                                _logger.Log("[UpdateChangeRequestDataAsync] Failed to create original Business Workspace", LogLevel.ERROR);
+                                throw new Exception("Failed to create original Business Workspace.");
+                            }
+                        }
+
                         if (!string.IsNullOrEmpty(originalBWnodeId))
                         {
                             // Get folders from the original workspace
@@ -393,16 +443,38 @@ namespace OpenTextIntegrationAPI.ClassObjects
                             var oriBWFolders = await _csNode.GetNodeSubFoldersAsync(originalBWnodeId, ticket, "Master");
                             string? folderNodeId = oriBWFolders.FirstOrDefault(f => f.Name == strFolder)?.NodeId;
 
-                            // If target folder exists, move document
+                            // If target folder exists
                             if (!string.IsNullOrEmpty(folderNodeId))
                             {
-                                _logger.Log($"[UpdateChangeRequestDataAsync] Moving document {document.Name} to {strFolder}", LogLevel.DEBUG);
-                                bool resultMove = await _csNode.MoveNodeAsync(document.NodeId, folderNodeId, ticket);
+                                // Check if a document with same name already exists in the target folder
+                                _logger.Log($"Checking for existing document with same name in target folder", LogLevel.DEBUG);
+                                var existingDocs = await _csNode.GetNodeSubNodesAsync(folderNodeId, ticket, null, document.Name);
+                                var existingDoc = existingDocs.FirstOrDefault(d => d.Name == document.Name);
 
-                                if (!resultMove)
+                                if (existingDoc != null)
                                 {
-                                    _logger.Log($"[UpdateChangeRequestDataAsync] Failed to move document {document.Name}", LogLevel.ERROR);
-                                    throw new Exception($"Could not move node ({document.Name}) to folder.");
+                                    // Document exists - add as a new version using API v2
+                                    _logger.Log($"Document '{document.Name}' already exists in target folder (ID: {existingDoc.NodeId}). Adding as new version.", LogLevel.INFO);
+
+                                    bool versionAdded = await AddDocumentAsVersionAsync(document.NodeId, existingDoc.NodeId, ticket);
+
+                                    if (!versionAdded)
+                                    {
+                                        _logger.Log($"Failed to add version to existing document {existingDoc.NodeId}", LogLevel.ERROR);
+                                        throw new Exception($"Could not add version to existing document ({document.Name}).");
+                                    }
+                                }
+                                else
+                                {
+                                    // No existing document - move the document
+                                    _logger.Log($"[UpdateChangeRequestDataAsync] Moving document {document.Name} to {strFolder}", LogLevel.DEBUG);
+                                    bool resultMove = await _csNode.MoveNodeAsync(document.NodeId, folderNodeId, ticket);
+
+                                    if (!resultMove)
+                                    {
+                                        _logger.Log($"[UpdateChangeRequestDataAsync] Failed to move document {document.Name}", LogLevel.ERROR);
+                                        throw new Exception($"Could not move node ({document.Name}) to folder.");
+                                    }
                                 }
                             }
                             // If target folder doesn't exist but creation is allowed, create and move
@@ -463,6 +535,459 @@ namespace OpenTextIntegrationAPI.ClassObjects
                     _logger.Log("[UpdateChangeRequestDataAsync] Workspace creation failed", LogLevel.ERROR);
                     throw new Exception("Business Workspace creation failed.");
                 }
+            }
+        }
+
+        /// <summary>
+        /// Adds a document as a new version to an existing document using the OpenText API v2
+        /// </summary>
+        /// <param name="sourceNodeId">ID of the document to add as a new version</param>
+        /// <param name="targetNodeId">ID of the existing document that will receive the new version</param>
+        /// <param name="ticket">Authentication ticket (OTCSTICKET)</param>
+        /// <returns>True if version was added successfully</returns>
+        private async Task<bool> AddDocumentAsVersionAsync(string sourceNodeId, string targetNodeId, string ticket)
+        {
+            try
+            {
+                _logger.Log($"Adding document {sourceNodeId} as new version to document {targetNodeId} using API v2", LogLevel.INFO);
+
+                // First, get the metadata of the source document to determine its type
+                string metadataUrl = $"{_settings.BaseUrl}/api/v2/nodes/{sourceNodeId}";
+                using var metadataRequest = new HttpRequestMessage(HttpMethod.Get, metadataUrl);
+                metadataRequest.Headers.Add("OTCSTicket", ticket);
+
+                var metadataResponse = await _httpClient.SendAsync(metadataRequest);
+                if (!metadataResponse.IsSuccessStatusCode)
+                {
+                    _logger.Log($"Failed to get document metadata: {metadataResponse.StatusCode}", LogLevel.ERROR);
+                    return false;
+                }
+
+                string metadataJson = await metadataResponse.Content.ReadAsStringAsync();
+                string fileName = "document.bin";
+                string mimeType = "application/octet-stream";
+                bool isPdf = false;
+
+                // Log raw JSON for debugging purposes
+                _logger.Log($"Document metadata JSON preview: {metadataJson.Substring(0, Math.Min(200, metadataJson.Length))}...", LogLevel.DEBUG);
+
+                try
+                {
+                    using var jsonDoc = System.Text.Json.JsonDocument.Parse(metadataJson);
+                    var root = jsonDoc.RootElement;
+
+                    // Fix: Correctly navigate the JSON structure based on actual format
+                    if (root.TryGetProperty("results", out var resultsObj))
+                    {
+                        // results is an object, not an array
+                        if (resultsObj.TryGetProperty("data", out var dataObj))
+                        {
+                            // Extract file name from properties
+                            if (dataObj.TryGetProperty("properties", out var props) &&
+                                props.TryGetProperty("name", out var name))
+                            {
+                                fileName = name.GetString() ?? fileName;
+                                _logger.Log($"Got file name from metadata: {fileName}", LogLevel.DEBUG);
+
+                                // Check if this is a PDF based on file extension
+                                isPdf = fileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase);
+                            }
+
+                            // Extract mime type from properties
+                            if (dataObj.TryGetProperty("properties", out var propsForMime) &&
+                                propsForMime.TryGetProperty("mime_type", out var mime))
+                            {
+                                mimeType = mime.GetString() ?? mimeType;
+                                _logger.Log($"Got MIME type from properties: {mimeType}", LogLevel.DEBUG);
+
+                                // Also check if this is a PDF based on mime type
+                                if (mimeType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    isPdf = true;
+                                }
+                            }
+
+                            // Also try to get from versions array if available
+                            if (dataObj.TryGetProperty("versions", out var versions) &&
+                                versions.ValueKind == System.Text.Json.JsonValueKind.Array &&
+                                versions.GetArrayLength() > 0)
+                            {
+                                var firstVersion = versions[0];
+
+                                // Try to get mime type from version
+                                if (firstVersion.TryGetProperty("mime_type", out var versionMime))
+                                {
+                                    string versionMimeType = versionMime.GetString() ?? mimeType;
+                                    if (!string.IsNullOrEmpty(versionMimeType))
+                                    {
+                                        mimeType = versionMimeType;
+                                        _logger.Log($"Got MIME type from version: {mimeType}", LogLevel.DEBUG);
+
+                                        // Update PDF flag if mime type indicates PDF
+                                        if (mimeType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            isPdf = true;
+                                        }
+                                    }
+                                }
+
+                                // Try to get file name from version
+                                if (firstVersion.TryGetProperty("file_name", out var versionFileName))
+                                {
+                                    string versionName = versionFileName.GetString() ?? fileName;
+                                    if (!string.IsNullOrEmpty(versionName))
+                                    {
+                                        fileName = versionName;
+                                        _logger.Log($"Got file name from version: {fileName}", LogLevel.DEBUG);
+
+                                        // Update PDF flag if file extension indicates PDF
+                                        isPdf = fileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Log($"Error parsing metadata: {ex.Message}", LogLevel.WARNING);
+                    // Continue with default values if parsing fails
+                }
+
+                // Log PDF status and file info
+                _logger.Log($"Document is PDF: {isPdf}, File name: {fileName}, MIME type: {mimeType}", LogLevel.INFO);
+
+                // Now download the content of the source document
+                string contentUrl = $"{_settings.BaseUrl}/api/v2/nodes/{sourceNodeId}/content";
+                using var downloadRequest = new HttpRequestMessage(HttpMethod.Get, contentUrl);
+                downloadRequest.Headers.Add("OTCSTicket", ticket);
+
+                var downloadResponse = await _httpClient.SendAsync(downloadRequest);
+                if (!downloadResponse.IsSuccessStatusCode)
+                {
+                    string errorBody = await downloadResponse.Content.ReadAsStringAsync();
+                    _logger.Log($"Failed to download document content: {downloadResponse.StatusCode} - {errorBody}", LogLevel.ERROR);
+                    return false;
+                }
+
+                // Get the document content as byte array
+                byte[] fileContent = await downloadResponse.Content.ReadAsByteArrayAsync();
+                _logger.Log($"Successfully downloaded document content, size: {fileContent.Length} bytes", LogLevel.INFO);
+
+                // Try API v1 first for PDF files - sometimes v2 has issues with PDFs
+                if (isPdf)
+                {
+                    _logger.Log("Detected PDF file, trying API v1 first", LogLevel.INFO);
+                    bool v1Success = await TryAddVersionWithV1Api(targetNodeId, fileContent, fileName, mimeType, ticket);
+                    if (v1Success)
+                    {
+                        return true;
+                    }
+                    _logger.Log("API v1 attempt failed, will try v2", LogLevel.WARNING);
+                }
+
+                // Create the version URL for API v2
+                string versionUrl = $"{_settings.BaseUrl}/api/v2/nodes/{targetNodeId}/versions";
+
+                // Create a MultipartFormDataContent for the request
+                using var multipartContent = new MultipartFormDataContent();
+
+                // Add the file content
+                using var fileStreamContent = new ByteArrayContent(fileContent);
+                fileStreamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mimeType);
+
+                // Add the file with explicit name parameter
+                multipartContent.Add(fileStreamContent, "file", fileName);
+
+                // Add description
+                multipartContent.Add(new StringContent("true"), "add_major_version");
+                multipartContent.Add(new StringContent($"Added from Change Request on {DateTime.Now:yyyy-MM-dd HH:mm:ss}"), "description");
+
+                // Create the HTTP request
+                using var versionRequest = new HttpRequestMessage(HttpMethod.Post, versionUrl);
+                versionRequest.Headers.Add("OTCSTicket", ticket);
+
+                // Remove any traceparent header if present
+                if (versionRequest.Headers.Contains("traceparent"))
+                {
+                    versionRequest.Headers.Remove("traceparent");
+                }
+
+                versionRequest.Content = multipartContent;
+
+                // Log request details
+                _logger.Log($"Sending version request to URL: {versionUrl}", LogLevel.DEBUG);
+                _logger.Log($"Content type: {mimeType}, File name: {fileName}, Size: {fileContent.Length} bytes", LogLevel.DEBUG);
+
+                // Send the request
+                var versionResponse = await _httpClient.SendAsync(versionRequest);
+
+                // Read the response
+                string responseContent = await versionResponse.Content.ReadAsStringAsync();
+
+                // Check if the request was successful
+                if (versionResponse.IsSuccessStatusCode)
+                {
+                    _logger.Log($"Successfully added document {sourceNodeId} as new version to {targetNodeId} using API v2", LogLevel.INFO);
+                    return true;
+                }
+                else
+                {
+                    _logger.Log($"Failed to add version using API v2: {versionResponse.StatusCode} - {responseContent}", LogLevel.ERROR);
+
+                    // If v2 fails and we haven't tried v1 yet (for non-PDFs), try v1 as fallback
+                    if (!isPdf)
+                    {
+                        _logger.Log("API v2 failed, trying API v1 as fallback", LogLevel.WARNING);
+                        return await TryAddVersionWithV1Api(targetNodeId, fileContent, fileName, mimeType, ticket);
+                    }
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogException(ex);
+                _logger.Log($"Exception adding document as version using API v2: {ex.Message}", LogLevel.ERROR);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Attempts to add a version using the API v1 endpoint
+        /// </summary>
+        private async Task<bool> TryAddVersionWithV1Api(string targetNodeId, byte[] fileContent, string fileName, string mimeType, string ticket)
+        {
+            try
+            {
+                _logger.Log($"Trying to add version using API v1 for node {targetNodeId}", LogLevel.INFO);
+
+                // Create the version URL for API v1
+                string versionUrl = $"{_settings.BaseUrl}/api/v1/nodes/{targetNodeId}/versions";
+
+                // Create a MultipartFormDataContent for the request
+                using var multipartContent = new MultipartFormDataContent();
+
+                // Add the file content
+                using var fileStreamContent = new ByteArrayContent(fileContent);
+                fileStreamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mimeType);
+
+                // Add the file with explicit name parameter
+                multipartContent.Add(fileStreamContent, "file", fileName);
+
+                // Add description and version type
+                multipartContent.Add(new StringContent("true"), "add_major_version");
+                multipartContent.Add(new StringContent($"Added from Change Request on {DateTime.Now:yyyy-MM-dd HH:mm:ss}"), "description");
+
+                // Create the HTTP request
+                using var versionRequest = new HttpRequestMessage(HttpMethod.Post, versionUrl);
+                versionRequest.Headers.Add("OTCSTicket", ticket);
+
+                // Remove any traceparent header if present
+                if (versionRequest.Headers.Contains("traceparent"))
+                {
+                    versionRequest.Headers.Remove("traceparent");
+                }
+
+                versionRequest.Content = multipartContent;
+
+                // Log request details
+                _logger.Log($"Sending v1 version request to URL: {versionUrl}", LogLevel.DEBUG);
+
+                // Send the request
+                var versionResponse = await _httpClient.SendAsync(versionRequest);
+
+                // Read the response
+                string responseContent = await versionResponse.Content.ReadAsStringAsync();
+
+                // Check if the request was successful
+                if (versionResponse.IsSuccessStatusCode)
+                {
+                    _logger.Log($"Successfully added version using API v1", LogLevel.INFO);
+                    return true;
+                }
+                else
+                {
+                    _logger.Log($"Failed to add version using API v1: {versionResponse.StatusCode} - {responseContent}", LogLevel.ERROR);
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogException(ex);
+                _logger.Log($"Exception in API v1 version attempt: {ex.Message}", LogLevel.ERROR);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Moves a document to an existing document as a new version instead of creating a duplicate
+        /// </summary>
+        /// <param name="sourceNodeId">ID of the document to add as a new version</param>
+        /// <param name="targetNodeId">ID of the existing document that will receive the new version</param>
+        /// <param name="ticket">Authentication ticket (OTCSTICKET)</param>
+        /// <returns>True if the operation was successful</returns>
+        private async Task<bool> CopyDocumentAsVersionAsync(string sourceNodeId, string targetNodeId, string ticket)
+        {
+            try
+            {
+                _logger.Log($"Adding document {sourceNodeId} as new version to document {targetNodeId}", LogLevel.INFO);
+
+                // Crear la URL para la API de OpenText
+                string url = $"{_settings.BaseUrl}/api/v2/nodes/{targetNodeId}/versions";
+
+                // Datos que enviaremos
+                var requestData = new
+                {
+                    original_id = int.Parse(sourceNodeId),
+                    add_major_version = true,
+                    description = $"Added from Change Request on {DateTime.Now:yyyy-MM-dd HH:mm:ss}"
+                };
+
+                // Convertir los datos a JSON
+                string jsonBody = System.Text.Json.JsonSerializer.Serialize(requestData);
+
+                // Crear la solicitud HTTP
+                using var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+                using var request = new HttpRequestMessage(HttpMethod.Post, url);
+                request.Headers.Add("OTCSTicket", ticket);
+                request.Content = content;
+
+                // Registrar los detalles de la solicitud (para depuración)
+                string fullRequest = $"URL: {url}\nMethod: POST\nHeaders: OTCSTicket: {ticket}\nContent: {jsonBody}";
+                _logger.LogRawOutbound("request_add_version_detailed", fullRequest);
+
+                // Enviar la solicitud
+                var response = await _httpClient.SendAsync(request);
+
+                // Leer la respuesta
+                var responseBody = await response.Content.ReadAsStringAsync();
+
+                // Registrar la respuesta (para depuración)
+                string fullResponse = $"Status Code: {response.StatusCode}\nHeaders: {string.Join(", ", response.Headers.Select(h => $"{h.Key}={string.Join(",", h.Value)}"))})\nBody: {responseBody}";
+                _logger.LogRawOutbound("response_add_version_detailed", fullResponse);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.Log($"Successfully added document {sourceNodeId} as new version to document {targetNodeId}", LogLevel.INFO);
+                    return true;
+                }
+                else
+                {
+                    _logger.Log($"Failed to add document as version: {response.StatusCode} - {responseBody}", LogLevel.ERROR);
+
+                    // Si falla, intentemos un enfoque alternativo - copiar el documento a través del API de copia
+                    return await CopyDocumentAlternativeAsync(sourceNodeId, targetNodeId, ticket);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogException(ex);
+                _logger.Log($"Exception adding document as version: {ex.Message}", LogLevel.ERROR);
+                return false;
+            }
+        }
+
+
+
+        /// <summary>
+        /// Intento alternativo para manejar versiones de documentos
+        /// </summary>
+        private async Task<bool> CopyDocumentAlternativeAsync(string sourceNodeId, string targetNodeId, string ticket)
+        {
+            try
+            {
+                _logger.Log($"Trying alternative approach to copy document {sourceNodeId}", LogLevel.INFO);
+
+                // Primero, obtener el contenido del documento fuente
+                string downloadUrl = $"{_settings.BaseUrl}/api/v1/nodes/{sourceNodeId}/content";
+
+                // Crear la solicitud HTTP para descargar
+                using var downloadRequest = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
+                downloadRequest.Headers.Add("OTCSTicket", ticket);
+
+                // Registrar los detalles de la solicitud de descarga
+                _logger.LogRawOutbound("request_download_document", $"URL: {downloadUrl}\nMethod: GET\nHeaders: OTCSTicket: {ticket}");
+
+                // Enviar la solicitud de descarga
+                var downloadResponse = await _httpClient.SendAsync(downloadRequest);
+
+                if (!downloadResponse.IsSuccessStatusCode)
+                {
+                    var errorBody = await downloadResponse.Content.ReadAsStringAsync();
+                    _logger.Log($"Failed to download document content: {downloadResponse.StatusCode} - {errorBody}", LogLevel.ERROR);
+                    return false;
+                }
+
+                // Obtener el contenido del documento como array de bytes
+                var documentContent = await downloadResponse.Content.ReadAsByteArrayAsync();
+                _logger.Log($"Downloaded document content, size: {documentContent.Length} bytes", LogLevel.DEBUG);
+
+                // Obtener el nombre y tipo de documento
+                string documentName = "document.bin"; // Nombre por defecto
+                string contentType = "application/octet-stream"; // Tipo por defecto
+
+                // Intentar obtener el nombre del documento desde los headers
+                if (downloadResponse.Content.Headers.ContentDisposition != null)
+                {
+                    documentName = downloadResponse.Content.Headers.ContentDisposition.FileName ?? documentName;
+                }
+
+                // Intentar obtener el tipo de contenido desde los headers
+                if (downloadResponse.Content.Headers.ContentType != null)
+                {
+                    contentType = downloadResponse.Content.Headers.ContentType.ToString();
+                }
+
+                // Crear la URL para añadir versión
+                string versionUrl = $"{_settings.BaseUrl}/api/v1/nodes/{targetNodeId}/versions";
+
+                // Crear la solicitud HTTP para añadir versión
+                using var multipartContent = new MultipartFormDataContent();
+                using var fileContent = new ByteArrayContent(documentContent);
+                fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+
+                // Añadir el contenido del archivo
+                multipartContent.Add(fileContent, "file", documentName);
+
+                // Añadir otros parámetros
+                multipartContent.Add(new StringContent("true"), "add_major_version");
+                multipartContent.Add(new StringContent($"Added from Change Request on {DateTime.Now:yyyy-MM-dd HH:mm:ss}"), "description");
+
+                // Crear la solicitud
+                using var versionRequest = new HttpRequestMessage(HttpMethod.Post, versionUrl);
+                versionRequest.Headers.Add("OTCSTicket", ticket);
+                versionRequest.Content = multipartContent;
+
+                // Registrar los detalles de la solicitud (limitado debido al tamaño)
+                _logger.LogRawOutbound("request_add_version_alternative",
+                    $"URL: {versionUrl}\nMethod: POST\nHeaders: OTCSTicket: {ticket}\nContent: [Binary data of size {documentContent.Length} bytes]");
+
+                // Enviar la solicitud
+                var versionResponse = await _httpClient.SendAsync(versionRequest);
+
+                // Leer la respuesta
+                var versionResponseBody = await versionResponse.Content.ReadAsStringAsync();
+
+                // Registrar la respuesta
+                _logger.LogRawOutbound("response_add_version_alternative",
+                    $"Status Code: {versionResponse.StatusCode}\nBody: {versionResponseBody}");
+
+                if (versionResponse.IsSuccessStatusCode)
+                {
+                    _logger.Log($"Successfully added document as new version using alternative method", LogLevel.INFO);
+                    return true;
+                }
+                else
+                {
+                    _logger.Log($"Failed to add document as version (alternative method): {versionResponse.StatusCode} - {versionResponseBody}", LogLevel.ERROR);
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogException(ex);
+                _logger.Log($"Exception in alternative version method: {ex.Message}", LogLevel.ERROR);
+                return false;
             }
         }
 

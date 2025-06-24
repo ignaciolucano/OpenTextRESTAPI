@@ -24,6 +24,7 @@ namespace OpenTextIntegrationAPI.Models
         public bool CreateFolderOnMove { get; set; }
         public string RootFolderId { get; set; }
         public string AssetsRootFolderId { get; set; }
+        public object EnableRecordsManagement { get; set; }
 
         public Dictionary<string, string> DocumentTypeMapping { get; set; }
 
@@ -36,6 +37,5 @@ namespace OpenTextIntegrationAPI.Models
 
             throw new Exception($"Document type '{docTypeString}' not found in mapping.");
         }
-
     }
 }

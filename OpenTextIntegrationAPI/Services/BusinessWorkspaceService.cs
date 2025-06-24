@@ -75,90 +75,199 @@ namespace OpenTextIntegrationAPI.Services
         {
             _logger.Log($"Starting CreateBusinessWorkspaceAsync for BO: {boType}/{boId}", LogLevel.INFO);
 
+            // Validate and format BO parameters
+            _logger.Log("Validating and formatting BO parameters", LogLevel.DEBUG);
+            (string validatedBoType, string formattedBoId) = ValidateAndFormatBoParams(boType, boId);
+            _logger.Log($"Validated and formatted boType: {validatedBoType}, boId: {formattedBoId}", LogLevel.DEBUG);
+
             var baseUrl = _settings.BaseUrl;
             var extSystemId = _settings.ExtSystemId;
             var url = $"{baseUrl}/api/v2/businessworkspaces/";
 
             _logger.Log($"Workspace creation URL: {url}", LogLevel.DEBUG);
 
-            // Prepare workspace creation body
+            // Determine parent ID, template ID, and workspace type ID based on business object type
+            string uNameParentId = "";
+            string uNameTemplateId = "";
+            string uNameWorkspaceTypeId = "";
+            string formattedName = "";
+
+            // Format Business Object ID and select correct template based on type
+            _logger.Log($"Determining template settings for BO type: {validatedBoType}", LogLevel.DEBUG);
+            if (validatedBoType.Equals("BUS1001006", StringComparison.OrdinalIgnoreCase))
+            {
+                // Material Master
+                uNameParentId = _settings.uNamePIBUS1001006;
+                uNameTemplateId = _settings.uNameTIBUS1001006;
+                uNameWorkspaceTypeId = _settings.uNameWTIBUS1001006;
+                formattedName = formattedBoId + " - Material Master";
+            }
+            else if (validatedBoType.Equals("BUS1001001", StringComparison.OrdinalIgnoreCase))
+            {
+                // Material Group
+                uNameParentId = _settings.uNamePIBUS1001001;
+                uNameTemplateId = _settings.uNameTIBUS1001001;
+                uNameWorkspaceTypeId = _settings.uNameWTIBUS1001001;
+                formattedName = formattedBoId + " - Material Group";
+            }
+            else if (validatedBoType.Equals("BUS1006", StringComparison.OrdinalIgnoreCase))
+            {
+                // Vendor/Customer
+                uNameParentId = _settings.uNamePIBUS1006;
+                uNameTemplateId = _settings.uNameTIBUS1006;
+                uNameWorkspaceTypeId = _settings.uNameWTIBUS1006;
+                formattedName = formattedBoId + " - Vendor/Customer";
+            }
+            else if (validatedBoType.Equals("BUS2250", StringComparison.OrdinalIgnoreCase))
+            {
+                // Change Request
+                uNameParentId = _settings.uNamePIBUS2250;
+                uNameTemplateId = _settings.uNameTIBUS2250;
+                uNameWorkspaceTypeId = _settings.uNameWTIBUS2250;
+                formattedName = formattedBoId + " - Change Request";
+            }
+            else
+            {
+                _logger.Log($"Unsupported BO type: {validatedBoType}", LogLevel.ERROR);
+                throw new Exception($"Unsupported business object type: {validatedBoType}");
+            }
+
+            _logger.Log($"Using unique names - Parent: {uNameParentId}, Template: {uNameTemplateId}, WorkspaceType: {uNameWorkspaceTypeId}", LogLevel.DEBUG);
+
+            // Get IDs from unique names
+            _logger.Log("Resolving unique names to IDs", LogLevel.DEBUG);
+            string? parentId = await GetUniqueName(_ticket, uNameParentId);
+            string? templateId = await GetUniqueName(_ticket, uNameTemplateId);
+            string? strWorkspaceTypeId = await GetUniqueName(_ticket, uNameWorkspaceTypeId);
+
+            // Initialize an integer variable to store the converted value
+            int workspaceTypeId = 0;
+
+            // Check if the string has a value before attempting conversion
+            if (!string.IsNullOrEmpty(strWorkspaceTypeId))
+            {
+                // Try to parse the string to an integer
+                if (int.TryParse(strWorkspaceTypeId, out int parsedTypeId))
+                {
+                    // Successfully parsed
+                    workspaceTypeId = parsedTypeId;
+                    _logger.Log($"Converted workspace type ID '{strWorkspaceTypeId}' to integer: {workspaceTypeId}", LogLevel.DEBUG);
+                }
+                else
+                {
+                    // Parsing failed - log a warning and use default value
+                    _logger.Log($"Warning: Could not parse workspace type ID '{strWorkspaceTypeId}' to integer. Using 0 as default.", LogLevel.WARNING);
+                }
+            }
+            else
+            {
+                // String is null or empty - log a warning
+                _logger.Log("Warning: Workspace type ID string is null or empty. Using 0 as default.", LogLevel.WARNING);
+            }
+
+            if (string.IsNullOrEmpty(parentId) || string.IsNullOrEmpty(templateId) || string.IsNullOrEmpty(strWorkspaceTypeId))
+            {
+                _logger.Log("Failed to resolve one or more unique names", LogLevel.ERROR);
+                _logger.Log($"Parent ID: {parentId ?? "null"}, Template ID: {templateId ?? "null"}, Workspace Type ID: {strWorkspaceTypeId ?? "null"}", LogLevel.ERROR);
+                throw new Exception("Failed to resolve unique names for workspace creation");
+            }
+
+            _logger.Log($"Resolved IDs - Parent: {parentId}, Template: {templateId}, WorkspaceType: {workspaceTypeId}", LogLevel.DEBUG);
+
+            // Create workspace creation body
             var workspaceCreationBody = new
             {
-                parent_id = "1223697",
-                template_id = 1226272,
-                wksp_type_id = 1782920,
-                name = "Prueba BW",
-                bo_type = boType,
-                bo_id = boId,
+                parent_id = parentId,
+                template_id = templateId,
+                wksp_type_id = workspaceTypeId,
+                name = formattedName,
+                bo_type = validatedBoType,
+                bo_id = formattedBoId,
                 ext_system_id = extSystemId
             };
 
             string jsonBody = JsonSerializer.Serialize(workspaceCreationBody);
-            _logger.Log("Created workspace creation JSON body", LogLevel.DEBUG);
 
             // Log request details
-            _logger.LogRawOutbound("request_create_workspace", jsonBody);
+            _logger.Log($"Request body: {(jsonBody.Length > 500 ? jsonBody.Substring(0, 500) + "..." : jsonBody)}", LogLevel.DEBUG);
+            _logger.LogRawOutbound("request_create_business_workspace", jsonBody);
 
             var content = new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                { "body", jsonBody }
-            });
+    {
+        { "body", jsonBody }
+    });
 
             var request = new HttpRequestMessage(HttpMethod.Post, url)
             {
                 Content = content
             };
 
-            AddTicketHeader(request);
-            _logger.Log($"Creating Business Workspace via: {url}", LogLevel.DEBUG);
+            // Add authentication ticket
+            request.Headers.Add("OTCSTICKET", _ticket);
+
+            _logger.Log("Sending workspace creation request", LogLevel.DEBUG);
 
             // Send request
             HttpResponseMessage response;
             try
             {
-                _logger.Log("Sending workspace creation request", LogLevel.DEBUG);
                 response = await _httpClient.SendAsync(request);
+
+                // Read response content
+                var responseContent = await response.Content.ReadAsStringAsync();
+                _logger.LogRawOutbound("response_create_business_workspace", responseContent);
 
                 // Check for successful response
                 if (!response.IsSuccessStatusCode)
                 {
-                    var err = await response.Content.ReadAsStringAsync();
-                    _logger.Log($"Business Workspace creation failed: {response.StatusCode} - {err}", LogLevel.ERROR);
-
-                    // Log error response
-                    _logger.LogRawOutbound("response_create_workspace_error", err);
-
-                    throw new Exception($"Business Workspace creation failed with status {response.StatusCode}: {err}");
+                    _logger.Log($"Business Workspace creation failed: {response.StatusCode} - {responseContent}", LogLevel.ERROR);
+                    throw new Exception($"Business Workspace creation failed with status {response.StatusCode}: {responseContent}");
                 }
-            }
-            catch (Exception ex) when (!(ex is Exception))
-            {
-                _logger.LogException(ex, LogLevel.ERROR);
-                _logger.Log($"Error sending workspace creation request: {ex.Message}", LogLevel.ERROR);
-                throw;
-            }
 
-            // Process response
-            var responseJson = await response.Content.ReadAsStringAsync();
+                _logger.Log("Business Workspace created successfully", LogLevel.INFO);
 
-            // Log response (limited to reasonable size)
-            _logger.LogRawOutbound("response_create_workspace",
-                responseJson.Length > 1000 ? responseJson.Substring(0, 1000) + "..." : responseJson);
-
-            try
-            {
-                _logger.Log("Deserializing workspace creation response", LogLevel.DEBUG);
-                var wsResponse = JsonSerializer.Deserialize<BusinessWorkspaceResponse>(
-                    responseJson,
+                // Deserialize response using the correct model
+                var createResponse = JsonSerializer.Deserialize<BusinessWorkspaceCreateResponse>(responseContent,
                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
-                _logger.Log($"Successfully created Business Workspace for {boType}/{boId}", LogLevel.INFO);
-                return wsResponse;
+                if (createResponse?.Results?.Id > 0)
+                {
+                    _logger.Log($"Created workspace with ID: {createResponse.Results.Id}", LogLevel.INFO);
+
+                    // Create a BusinessWorkspaceResponse to maintain compatibility with the rest of the code
+                    var wsResponse = new BusinessWorkspaceResponse
+                    {
+                        results = new List<BusinessWorkspaceResult>
+                {
+                    new BusinessWorkspaceResult
+                    {
+                        data = new BusinessWorkspaceData
+                        {
+                            properties = new BusinessWorkspaceProperties
+                            {
+                                id = createResponse.Results.Id,
+                                name = formattedName,
+                                type = workspaceTypeId,
+                                type_name = "Business Workspace",
+                                container = true
+                            }
+                        }
+                    }
+                }
+                    };
+
+                    return wsResponse;
+                }
+                else
+                {
+                    _logger.Log("Created workspace but could not extract workspace ID from response", LogLevel.WARNING);
+                    return null;
+                }
             }
             catch (Exception ex)
             {
                 _logger.LogException(ex, LogLevel.ERROR);
-                _logger.Log($"Failed to deserialize BusinessWorkspaceResponse: {ex.Message}", LogLevel.ERROR);
+                _logger.Log($"Error in CreateBusinessWorkspaceAsync: {ex.Message}", LogLevel.ERROR);
                 throw;
             }
         }
@@ -548,6 +657,53 @@ namespace OpenTextIntegrationAPI.Services
                 _logger.Log($"Failed to process workspace creation response: {ex.Message}", LogLevel.ERROR);
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Validates and formats business object parameters based on business object type.
+        /// </summary>
+        /// <param name="boType">Business Object Type</param>
+        /// <param name="boId">Business Object ID</param>
+        /// <returns>Tuple containing validated boType and formatted boId</returns>
+        private (string validatedBoType, string formattedBoId) ValidateAndFormatBoParams(string boType, string boId)
+        {
+            // Validate business object type
+            if (string.IsNullOrEmpty(boType))
+            {
+                _logger.Log("Business Object Type is null or empty", LogLevel.ERROR);
+                throw new ArgumentException("Business Object Type cannot be null or empty", nameof(boType));
+            }
+
+            // Validate business object ID
+            if (string.IsNullOrEmpty(boId))
+            {
+                _logger.Log("Business Object ID is null or empty", LogLevel.ERROR);
+                throw new ArgumentException("Business Object ID cannot be null or empty", nameof(boId));
+            }
+
+            // Format business object ID based on type
+            string formattedBoId = boId;
+
+            if (boType.Equals("BUS1001006", StringComparison.OrdinalIgnoreCase) ||
+                boType.Equals("BUS1001001", StringComparison.OrdinalIgnoreCase))
+            {
+                // Material Master or Material Group (18 digits)
+                formattedBoId = boId.PadLeft(18, '0');
+            }
+            else if (boType.Equals("BUS1006", StringComparison.OrdinalIgnoreCase))
+            {
+                // Vendor/Customer (10 digits)
+                formattedBoId = boId.PadLeft(10, '0');
+            }
+            else if (boType.Equals("BUS2250", StringComparison.OrdinalIgnoreCase))
+            {
+                // Change Request (12 digits)
+                formattedBoId = boId.PadLeft(12, '0');
+            }
+
+            _logger.Log($"Formatted BO ID: {formattedBoId} for type: {boType}", LogLevel.DEBUG);
+
+            return (boType, formattedBoId);
         }
 
         /// <summary>

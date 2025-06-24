@@ -322,6 +322,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             string retNodeTypeName = "";
             int retParentId = 0;
             string retNodeMimeType = "";
+            int retFileSize = 0;
 
             // Create request with authentication ticket
             var requestMessage = new HttpRequestMessage(HttpMethod.Get, url);
@@ -372,6 +373,9 @@ namespace OpenTextIntegrationAPI.ClassObjects
                             retNodeType = data.TryGetProperty("type", out JsonElement typeElem) ?
                                 typeElem.GetInt32() : 0;
 
+                            retFileSize = data.TryGetProperty("size", out JsonElement typeFileSize) ?
+                                typeFileSize.GetInt32() : 0;
+
                             retNodeTypeName = data.TryGetProperty("type_name", out JsonElement typeNameElem) ?
                                 typeNameElem.GetString() ?? "" : "";
 
@@ -394,6 +398,9 @@ namespace OpenTextIntegrationAPI.ClassObjects
                                     // Extract properties from this path
                                     retNodeId = propertiesArray.TryGetProperty("id", out JsonElement idElem) ?
                                     idElem.GetInt32() : nodeId;
+
+                                    retFileSize = propertiesArray.TryGetProperty("size", out JsonElement idFileSize) ?
+                                    idFileSize.GetInt32() : 0;
 
                                     retFileName = propertiesArray.TryGetProperty("name", out JsonElement nameElem) ?
                                         nameElem.GetString() ?? "" : "";
@@ -502,6 +509,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
             {
                 nodeId = retNodeId,
                 file_name = retFileName,
+                file_size = retFileSize,
                 type = retNodeType,
                 type_name = retNodeTypeName,
                 Content = contentBytes,
@@ -1658,9 +1666,35 @@ namespace OpenTextIntegrationAPI.ClassObjects
                 var folderResponse = JsonSerializer.Deserialize<FolderResponse>(wsChildNodesJson);
 
                 int newFolderNodeId = 0;
-                // Uncomment and implement when FolderResponse class is available
-                // newFolderNodeId = folderResponse?.FolderCreationResponse.results?.data?.properties?.id
-                //              ?? throw new Exception("No se pudo obtener el NodeId del folder creado.");
+                // Extract folder node ID from the JSON response
+
+                try
+                {
+                    using (JsonDocument doc = JsonDocument.Parse(wsChildNodesJson))
+                    {
+                        // Navigate through the JSON path to get the ID
+                        if (doc.RootElement.TryGetProperty("results", out JsonElement resultsElement) &&
+                            resultsElement.TryGetProperty("data", out JsonElement dataElement) &&
+                            dataElement.TryGetProperty("properties", out JsonElement propertiesElement) &&
+                            propertiesElement.TryGetProperty("id", out JsonElement idElement))
+                        {
+                            newFolderNodeId = idElement.GetInt32();
+                            _logger.Log($"Successfully extracted folder node ID: {newFolderNodeId}", LogLevel.DEBUG);
+                        }
+                        else
+                        {
+                            _logger.Log("Could not find folder node ID in the JSON response", LogLevel.WARNING);
+                            // Optional: Log the full JSON for debugging
+                            _logger.Log($"JSON response: {wsChildNodesJson}", LogLevel.DEBUG);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Log($"Error parsing folder creation response: {ex.Message}", LogLevel.ERROR);
+                    _logger.LogException(ex, LogLevel.ERROR);
+                    throw new Exception("Failed to extract folder node ID from response", ex);
+                }
 
                 _logger.Log($"Folder '{folderName}' created successfully with ID: {newFolderNodeId}", LogLevel.INFO);
                 return newFolderNodeId;

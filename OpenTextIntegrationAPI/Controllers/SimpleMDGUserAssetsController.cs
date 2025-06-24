@@ -147,6 +147,7 @@ namespace OpenTextIntegrationAPI.Controllers
             Summary = "Deletes a user folder",
             Description = "Deletes a user folder and all its contents from OpenText Content Server"
         )]
+        [ApiExplorerSettings(IgnoreApi = true)]
         [SwaggerResponse(200, "OK")]
         [SwaggerResponse(401, "Authentication required")]
         [SwaggerResponse(404, "User not found")]
@@ -405,6 +406,7 @@ namespace OpenTextIntegrationAPI.Controllers
             Summary = "Updates a user's avatar",
             Description = "Updates an existing avatar image for a user in OpenText Content Server"
         )]
+        [ApiExplorerSettings(IgnoreApi = true)]
         [SwaggerResponse(200, "OK", typeof(UserAvatarResponse))]
         [SwaggerResponse(400, "Invalid parameters")]
         [SwaggerResponse(401, "Authentication required")]
@@ -715,6 +717,7 @@ namespace OpenTextIntegrationAPI.Controllers
             Summary = "Deletes a user's avatar",
             Description = "Deletes the avatar image for a user from OpenText Content Server"
         )]
+        [ApiExplorerSettings(IgnoreApi = true)]
         [SwaggerResponse(200, "OK")]
         [SwaggerResponse(401, "Authentication required")]
         [SwaggerResponse(404, "User or avatar not found")]
@@ -1219,6 +1222,7 @@ namespace OpenTextIntegrationAPI.Controllers
             Summary = "Updates an attachment",
             Description = "Updates an existing attachment in OpenText Content Server"
         )]
+        [ApiExplorerSettings(IgnoreApi = true)]
         [SwaggerResponse(200, "OK", typeof(UserAttachmentResponse))]
         [SwaggerResponse(400, "Invalid parameters")]
         [SwaggerResponse(401, "Authentication required")]
