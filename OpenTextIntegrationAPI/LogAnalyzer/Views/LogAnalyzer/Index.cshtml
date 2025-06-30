@@ -1,613 +1,955 @@
 ﻿<!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OpenText Log Analyzer</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet" />
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenText Integration Log Analyzer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.0/axios.min.js"></script>
     <style>
-        .timeline-item {
-            border-left: 3px solid #dee2e6;
-            padding-left: 1rem;
-            margin-bottom: 1rem;
-            position: relative;
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
 
-            .timeline-item::before {
-                content: '';
-                position: absolute;
-                left: -6px;
-                top: 0.5rem;
-                width: 9px;
-                height: 9px;
-                border-radius: 50%;
-                background: #6c757d;
-            }
-
-            .timeline-item.request::before {
-                background: #0d6efd;
-            }
-
-            .timeline-item.response::before {
-                background: #198754;
-            }
-
-            .timeline-item.error::before {
-                background: #dc3545;
-            }
-
-            .timeline-item.rawlog::before {
-                background: #fd7e14;
-            }
-
-            .timeline-item.authentication::before {
-                background: #6f42c1;
-            }
-
-        .log-level-trace {
-            color: #6c757d;
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
         }
 
-        .log-level-debug {
-            color: #0dcaf0;
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
         }
 
-        .log-level-info {
-            color: #0d6efd;
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            text-align: center;
         }
 
-        .log-level-warning {
-            color: #ffc107;
+        h1 {
+            color: #2c3e50;
+            font-size: 2.5rem;
+            font-weight: 300;
+            margin-bottom: 10px;
         }
 
-        .log-level-error {
-            color: #dc3545;
+        .subtitle {
+            color: #7f8c8d;
+            font-size: 1.1rem;
         }
 
-        .log-level-fatal {
-            color: #6f42c1;
-            background: #fff3cd;
+        .filters {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .filter-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        label {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+        }
+
+        input, select {
+            padding: 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+            background: white;
+        }
+
+            input:focus, select:focus {
+                outline: none;
+                border-color: #667eea;
+                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+            .btn-primary:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            }
+
+        .btn-secondary {
+            background: #95a5a6;
+            color: white;
+        }
+
+            .btn-secondary:hover {
+                background: #7f8c8d;
+            }
+
+        .results {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
         }
 
         .trace-card {
-            transition: transform 0.2s;
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            border-left: 5px solid #667eea;
+            transition: all 0.3s ease;
             cursor: pointer;
         }
 
             .trace-card:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+                transform: translateY(-3px);
+                box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
             }
 
-        .file-content {
-            max-height: 400px;
-            overflow-y: auto;
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 0.375rem;
-            padding: 1rem;
-            font-family: 'Courier New', monospace;
-            font-size: 0.875rem;
-            white-space: pre-wrap;
+        .trace-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
         }
 
-        .search-container {
+        .trace-id {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #2c3e50;
+            font-family: 'Courier New', monospace;
+        }
+
+        .trace-duration {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 2rem 0;
-            margin-bottom: 2rem;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
         }
 
-        .stats-card {
-            background: linear-gradient(45deg, #f093fb 0%, #f5576c 100%);
+        .trace-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .info-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .info-label {
+            font-size: 0.8rem;
+            color: #7f8c8d;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-bottom: 3px;
+        }
+
+        .info-value {
+            font-size: 0.95rem;
+            color: #2c3e50;
+            font-weight: 500;
+        }
+
+        .timing-info {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .timing-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content {
+            background: white;
+            margin: 2% auto;
+            padding: 0;
+            border-radius: 15px;
+            width: 95%;
+            max-width: 1200px;
+            max-height: 90vh;
+            overflow: hidden;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            border: none;
+            padding: 20px 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
-        .loading-spinner {
+            .modal-header h2 {
+                margin: 0;
+                font-size: 1.5rem;
+            }
+
+        .close {
+            color: white;
+            font-size: 2rem;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+            .close:hover {
+                opacity: 0.7;
+            }
+
+        .modal-body {
+            padding: 25px;
+            max-height: calc(90vh - 200px);
+            overflow-y: auto;
+        }
+
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #e9ecef;
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            padding: 12px 20px;
+            cursor: pointer;
+            border: none;
+            background: none;
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #7f8c8d;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+            .tab.active {
+                color: #667eea;
+                border-bottom-color: #667eea;
+            }
+
+        .tab-content {
             display: none;
         }
 
-        .fade-in {
-            animation: fadeIn 0.5s ease-in;
-        }
-
-        @@keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
+            .tab-content.active {
+                display: block;
             }
 
-            to {
-                opacity: 1;
-                transform: translateY(0);
+        .timeline-item {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+            position: relative;
+        }
+
+            .timeline-item.request {
+                border-left-color: #28a745;
+            }
+
+            .timeline-item.response {
+                border-left-color: #17a2b8;
+            }
+
+            .timeline-item.error {
+                border-left-color: #dc3545;
+            }
+
+        .timeline-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .timeline-step {
+            background: #667eea;
+            color: white;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+
+        .timeline-time {
+            font-size: 0.85rem;
+            color: #6c757d;
+            font-family: 'Courier New', monospace;
+        }
+
+        .timeline-operation {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+
+        .timeline-duration {
+            display: flex;
+            gap: 15px;
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+
+        .file-content {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @@keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 60px 20px;
+            color: #6c757d;
+        }
+
+            .no-results h3 {
+                margin-bottom: 10px;
+                color: #495057;
+            }
+
+        @@media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+
+            .filter-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .trace-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+
+            .modal-content {
+                width: 98%;
+                margin: 1% auto;
             }
         }
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container">
-            <a class="navbar-brand" href="#">
-                <i class="fas fa-search-plus me-2"></i>
-                OpenText Log Analyzer
-            </a>
-        </div>
-    </nav>
-
-    <div class="search-container">
-        <div class="container">
-            <div class="row">
-                <div class="col-12">
-                    <h2 class="text-center mb-4">
-                        <i class="fas fa-chart-line me-2"></i>
-                        Análisis de Logs OpenText API
-                    </h2>
-                    <div class="row g-3">
-                        <div class="col-md-3">
-                            <input type="text" id="searchInput" class="form-control form-control-lg"
-                                   placeholder="Buscar texto general..." />
-                        </div>
-                        <div class="col-md-2">
-                            <select id="boTypeFilter" class="form-select form-select-lg">
-                                <option value="">Todos los BO Types</option>
-                            </select>
-                        </div>
-                        <div class="col-md-2">
-                            <input type="text" id="boIdFilter" class="form-control form-control-lg"
-                                   placeholder="BO ID (ej: 010498)" />
-                        </div>
-                        <div class="col-md-2">
-                            <select id="operationFilter" class="form-select form-select-lg">
-                                <option value="">Todas las operaciones</option>
-                            </select>
-                        </div>
-                        <div class="col-md-1">
-                            <select id="errorFilter" class="form-select form-select-lg">
-                                <option value="">Todos</option>
-                                <option value="true">Solo errores</option>
-                                <option value="false">Solo exitosos</option>
-                            </select>
-                        </div>
-                        <div class="col-md-2">
-                            <button id="searchBtn" class="btn btn-light btn-lg w-100">
-                                <i class="fas fa-search"></i> Buscar
-                            </button>
-                        </div>
-                    </div>
-                    <div class="row g-3 mt-2">
-                        <div class="col-md-3">
-                            <input type="datetime-local" id="fromDate" class="form-control" />
-                        </div>
-                        <div class="col-md-3">
-                            <input type="datetime-local" id="toDate" class="form-control" />
-                        </div>
-                        <div class="col-md-3">
-                            <button id="clearFilters" class="btn btn-outline-light">
-                                <i class="fas fa-times"></i> Limpiar filtros
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <div class="container">
-        <!-- Stats Row -->
-        <div class="row mb-4">
-            <div class="col-md-3">
-                <div class="card stats-card">
-                    <div class="card-body text-center">
-                        <h5 class="card-title">
-                            <i class="fas fa-list-ol"></i>
-                        </h5>
-                        <h3 id="totalTraces">0</h3>
-                        <p class="mb-0">Total Traces</p>
-                    </div>
+        <div class="header">
+            <h1>OpenText Integration Log Analyzer</h1>
+            <p class="subtitle">Trace timeline analysis with comprehensive timing metrics</p>
+        </div>
+
+        <div class="filters">
+            <div class="filter-grid">
+                <div class="form-group">
+                    <label for="search">Search</label>
+                    <input type="text" id="search" placeholder="Full Trace ID for exact match, or partial text for general search...">
+                </div>
+                <div class="form-group">
+                    <label for="boType">Business Object Type</label>
+                    <select id="boType">
+                        <option value="">All BO Types</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="boId">Business Object ID</label>
+                    <input type="text" id="boId" placeholder="e.g., 403669">
+                </div>
+                <div class="form-group">
+                    <label for="operation">Operation</label>
+                    <select id="operation">
+                        <option value="">All Operations</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="direction">Direction</label>
+                    <select id="direction">
+                        <option value="">All Directions</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="hasErrors">Has Errors</label>
+                    <select id="hasErrors">
+                        <option value="">All</option>
+                        <option value="true">With Errors</option>
+                        <option value="false">No Errors</option>
+                    </select>
                 </div>
             </div>
-            <div class="col-md-3">
-                <div class="card bg-success text-white">
-                    <div class="card-body text-center">
-                        <h5 class="card-title">
-                            <i class="fas fa-check-circle"></i>
-                        </h5>
-                        <h3 id="successTraces">0</h3>
-                        <p class="mb-0">Exitosos</p>
-                    </div>
+
+            <div class="filter-grid">
+                <div class="form-group">
+                    <label for="fromDate">From Date</label>
+                    <input type="datetime-local" id="fromDate">
+                </div>
+                <div class="form-group">
+                    <label for="toDate">To Date</label>
+                    <input type="datetime-local" id="toDate">
+                </div>
+                <div class="form-group">
+                    <label for="minDuration">Min Duration (ms)</label>
+                    <input type="number" id="minDuration" placeholder="e.g., 1000">
+                </div>
+                <div class="form-group">
+                    <label for="maxDuration">Max Duration (ms)</label>
+                    <input type="number" id="maxDuration" placeholder="e.g., 10000">
                 </div>
             </div>
-            <div class="col-md-3">
-                <div class="card bg-danger text-white">
-                    <div class="card-body text-center">
-                        <h5 class="card-title">
-                            <i class="fas fa-exclamation-triangle"></i>
-                        </h5>
-                        <h3 id="errorTraces">0</h3>
-                        <p class="mb-0">Con Errores</p>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card bg-info text-white">
-                    <div class="card-body text-center">
-                        <h5 class="card-title">
-                            <i class="fas fa-clock"></i>
-                        </h5>
-                        <h3 id="avgDuration">0ms</h3>
-                        <p class="mb-0">Duración Promedio</p>
-                    </div>
-                </div>
+
+            <div style="display: flex; gap: 15px; margin-top: 20px;">
+                <button class="btn btn-primary" onclick="searchTraces()">Search Traces</button>
+                <button class="btn btn-secondary" onclick="clearFilters()">Clear Filters</button>
+                <button class="btn btn-secondary" onclick="loadFilterOptions()">Refresh Options</button>
             </div>
         </div>
 
-        <!-- Loading Spinner -->
-        <div class="text-center loading-spinner" id="loadingSpinner">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Cargando...</span>
+        <div class="results">
+            <div id="loading" class="loading" style="display: none;">
+                <div class="spinner"></div>
+                <p>Loading traces...</p>
             </div>
-            <p class="mt-2">Analizando logs...</p>
-        </div>
-
-        <!-- Traces List -->
-        <div id="tracesContainer">
-            <div class="row" id="tracesList"></div>
+            <div id="traces-container"></div>
         </div>
     </div>
 
-    <!-- Trace Detail Modal -->
-    <div class="modal fade" id="traceModal" tabindex="-1">
-        <div class="modal-dialog modal-xl">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">
-                        <i class="fas fa-timeline me-2"></i>
-                        Detalle del Trace: <span id="modalTraceId"></span>
-                    </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    <!-- Trace Details Modal -->
+    <div id="traceModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Trace Details</h2>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="tabs">
+                    <button class="tab active" onclick="showTab('timeline')">Timeline</button>
+                    <button class="tab" onclick="showTab('request')">Request</button>
+                    <button class="tab" onclick="showTab('response')">Response</button>
+                    <button class="tab" onclick="showTab('map')">Map</button>
                 </div>
-                <div class="modal-body">
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <strong>Business Object:</strong> <span id="modalBusinessObject">-</span>
-                        </div>
-                        <div class="col-md-6">
-                            <strong>Operación:</strong> <span id="modalOperation">-</span>
-                        </div>
-                        <div class="col-md-6">
-                            <strong>Inicio:</strong> <span id="modalStartTime">-</span>
-                        </div>
-                        <div class="col-md-6">
-                            <strong>Duración:</strong> <span id="modalDuration">-</span>
-                        </div>
-                    </div>
 
-                    <ul class="nav nav-tabs" id="traceDetailTabs">
-                        <li class="nav-item">
-                            <a class="nav-link active" data-bs-toggle="tab" href="#timelineTab">
-                                <i class="fas fa-timeline"></i> Timeline
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" data-bs-toggle="tab" href="#requestTab">
-                                <i class="fas fa-arrow-up"></i> Request
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" data-bs-toggle="tab" href="#responseTab">
-                                <i class="fas fa-arrow-down"></i> Response
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" data-bs-toggle="tab" href="#mapTab">
-                                <i class="fas fa-map"></i> Map
-                            </a>
-                        </li>
-                    </ul>
+                <div id="timeline-tab" class="tab-content active">
+                    <div id="timeline-content"></div>
+                </div>
 
-                    <div class="tab-content mt-3">
-                        <div class="tab-pane fade show active" id="timelineTab">
-                            <div id="timelineContent"></div>
-                        </div>
-                        <div class="tab-pane fade" id="requestTab">
-                            <div id="requestContent" class="file-content"></div>
-                        </div>
-                        <div class="tab-pane fade" id="responseTab">
-                            <div id="responseContent" class="file-content"></div>
-                        </div>
-                        <div class="tab-pane fade" id="mapTab">
-                            <div id="mapContent" class="file-content"></div>
-                        </div>
-                    </div>
+                <div id="request-tab" class="tab-content">
+                    <div id="request-content" class="file-content"></div>
+                </div>
+
+                <div id="response-tab" class="tab-content">
+                    <div id="response-content" class="file-content"></div>
+                </div>
+
+                <div id="map-tab" class="tab-content">
+                    <div id="map-content" class="file-content"></div>
                 </div>
             </div>
         </div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
     <script>
-        let allTraces = [];
+        let currentTraces = [];
         let filterOptions = {};
 
-        // Initialize page
+        // Get the base path for API calls
+        function getBasePath() {
+            const path = window.location.pathname;
+            // Extract base path: /integrationRESTAPI/loganalyzer -> /integrationRESTAPI
+            const parts = path.split('/');
+            if (parts.length >= 3 && parts[1] && parts[2]) {
+                return `/${parts[1]}`;
+            }
+            return '';
+        }
+
+        const basePath = getBasePath();
+
+        // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             loadFilterOptions();
-            loadTraces();
-
-            document.getElementById('searchBtn').addEventListener('click', loadTraces);
-            document.getElementById('clearFilters').addEventListener('click', clearFilters);
-            document.getElementById('searchInput').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') loadTraces();
-            });
+            setDefaultDates();
+            displayInitialMessage();
         });
+
+        function setDefaultDates() {
+            const now = new Date();
+            const today = now.toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm format
+
+            // Set "To Date" to current time
+            document.getElementById('toDate').value = today;
+
+            // Set "From Date" to 24 hours ago
+            const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            document.getElementById('fromDate').value = yesterday.toISOString().slice(0, 16);
+        }
+
+        function displayInitialMessage() {
+            const container = document.getElementById('traces-container');
+            container.innerHTML = `
+                <div class="no-results">
+                    <h3>Welcome to OpenText Integration Log Analyzer</h3>
+                    <p>Use the filters above to search for traces. For better performance, specify a date range or use specific search criteria.</p>
+                    <p><strong>Tip:</strong> With ${formatNumber(20000)}+ log files in production, filtering by date is recommended.</p>
+                </div>
+            `;
+        }
+
+        function formatNumber(num) {
+            return num.toLocaleString();
+        }
 
         async function loadFilterOptions() {
             try {
-                const response = await fetch('/loganalyzer/api/filters');
-                filterOptions = await response.json();
+                const response = await axios.get(`${basePath}/loganalyzer/api/filters`);
+                filterOptions = response.data;
 
-                // Populate BO Type dropdown
-                const boTypeSelect = document.getElementById('boTypeFilter');
-                filterOptions.boTypes.forEach(boType => {
-                    const option = document.createElement('option');
-                    option.value = boType;
-                    option.textContent = boType;
-                    boTypeSelect.appendChild(option);
-                });
-
-                // Populate Operation dropdown
-                const operationSelect = document.getElementById('operationFilter');
-                filterOptions.operations.forEach(operation => {
-                    const option = document.createElement('option');
-                    option.value = operation;
-                    option.textContent = operation;
-                    operationSelect.appendChild(option);
-                });
+                populateSelect('boType', filterOptions.boTypes);
+                populateSelect('operation', filterOptions.operations);
+                populateSelect('direction', filterOptions.directions);
             } catch (error) {
                 console.error('Error loading filter options:', error);
             }
         }
 
-        function clearFilters() {
-            document.getElementById('searchInput').value = '';
-            document.getElementById('boTypeFilter').value = '';
-            document.getElementById('boIdFilter').value = '';
-            document.getElementById('operationFilter').value = '';
-            document.getElementById('errorFilter').value = '';
-            document.getElementById('fromDate').value = '';
-            document.getElementById('toDate').value = '';
-            loadTraces();
-        }
+        function populateSelect(selectId, options) {
+            const select = document.getElementById(selectId);
+            const currentValue = select.value;
 
-        async function loadTraces() {
-            const searchInput = document.getElementById('searchInput');
-            const boTypeFilter = document.getElementById('boTypeFilter');
-            const boIdFilter = document.getElementById('boIdFilter');
-            const operationFilter = document.getElementById('operationFilter');
-            const errorFilter = document.getElementById('errorFilter');
-            const fromDate = document.getElementById('fromDate');
-            const toDate = document.getElementById('toDate');
-            const loadingSpinner = document.getElementById('loadingSpinner');
-            const tracesContainer = document.getElementById('tracesContainer');
-
-            loadingSpinner.style.display = 'block';
-            tracesContainer.style.display = 'none';
-
-            try {
-                const params = new URLSearchParams();
-                if (searchInput.value) params.append('search', searchInput.value);
-                if (boTypeFilter.value) params.append('boType', boTypeFilter.value);
-                if (boIdFilter.value) params.append('boId', boIdFilter.value);
-                if (operationFilter.value) params.append('operation', operationFilter.value);
-                if (errorFilter.value) params.append('hasErrors', errorFilter.value);
-                if (fromDate.value) params.append('from', fromDate.value);
-                if (toDate.value) params.append('to', toDate.value);
-
-                const response = await fetch(`/loganalyzer/api/traces?${params}`);
-                allTraces = await response.json();
-
-                updateStats();
-                renderTraces();
-            } catch (error) {
-                console.error('Error loading traces:', error);
-                alert('Error cargando los traces: ' + error.message);
-            } finally {
-                loadingSpinner.style.display = 'none';
-                tracesContainer.style.display = 'block';
+            // Clear existing options except the first one
+            while (select.children.length > 1) {
+                select.removeChild(select.lastChild);
             }
-        }
 
-        function updateStats() {
-            document.getElementById('totalTraces').textContent = allTraces.length;
-
-            const errorTraces = allTraces.filter(t => t.hasErrors).length;
-            document.getElementById('errorTraces').textContent = errorTraces;
-            document.getElementById('successTraces').textContent = allTraces.length - errorTraces;
-
-            const avgDuration = allTraces.length > 0
-                ? Math.round(allTraces.reduce((sum, t) => sum + t.duration.totalMilliseconds, 0) / allTraces.length)
-                : 0;
-            document.getElementById('avgDuration').textContent = avgDuration + 'ms';
-        }
-
-        function renderTraces() {
-            const tracesList = document.getElementById('tracesList');
-            tracesList.innerHTML = '';
-
-            allTraces.forEach(trace => {
-                const hasErrors = trace.hasErrors;
-                const cardClass = hasErrors ? 'border-danger' : 'border-success';
-
-                const card = document.createElement('div');
-                card.className = 'col-md-6 col-lg-4 mb-3 fade-in';
-                card.innerHTML = `
-                    <div class="card trace-card ${cardClass}" onclick="showTraceDetail('${trace.traceId}')">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <small class="text-muted">${formatDateTime(trace.startTime)}</small>
-                            ${hasErrors ? '<i class="fas fa-exclamation-triangle text-danger"></i>' : '<i class="fas fa-check-circle text-success"></i>'}
-                        </div>
-                        <div class="card-body">
-                            <h6 class="card-title">
-                                <i class="fas fa-fingerprint me-1"></i>
-                                ${trace.traceId.substring(0, 8)}...
-                            </h6>
-                            <p class="card-text">
-                                <small class="text-muted">
-                                    <i class="fas fa-cog me-1"></i>
-                                    ${trace.operation || 'N/A'}
-                                </small><br>
-                                <small class="text-muted">
-                                    <i class="fas fa-cube me-1"></i>
-                                    ${trace.boType || 'N/A'}_${trace.boId || 'N/A'}
-                                </small><br>
-                                <small class="text-muted">
-                                    <i class="fas fa-clock me-1"></i>
-                                    ${Math.round(trace.duration.totalMilliseconds)}ms
-                                </small>
-                            </p>
-                        </div>
-                        <div class="card-footer">
-                            <small class="text-muted">${trace.entries.length} eventos</small>
-                        </div>
-                    </div>
-                `;
-                tracesList.appendChild(card);
+            options.forEach(option => {
+                const optionElement = document.createElement('option');
+                optionElement.value = option;
+                optionElement.textContent = option;
+                select.appendChild(optionElement);
             });
 
-            if (allTraces.length === 0) {
-                tracesList.innerHTML = `
-                    <div class="col-12 text-center">
-                        <div class="alert alert-info">
-                            <i class="fas fa-info-circle me-2"></i>
-                            No se encontraron traces con los criterios especificados.
-                        </div>
-                    </div>
-                `;
+            // Restore selected value if it still exists
+            if (options.includes(currentValue)) {
+                select.value = currentValue;
             }
         }
 
-        async function showTraceDetail(traceId) {
+        async function searchTraces() {
+            const loading = document.getElementById('loading');
+            const container = document.getElementById('traces-container');
+
+            // Check if user provided some filtering criteria for performance
+            const hasDateFilter = document.getElementById('fromDate').value || document.getElementById('toDate').value;
+            const hasSearchFilter = document.getElementById('search').value.length >= 3;
+            const hasSpecificFilter = document.getElementById('boType').value ||
+                                    document.getElementById('boId').value ||
+                                    document.getElementById('operation').value;
+
+            if (!hasDateFilter && !hasSearchFilter && !hasSpecificFilter) {
+                container.innerHTML = `
+                    <div class="no-results">
+                        <h3>Please specify search criteria</h3>
+                        <p>For performance reasons, please provide at least one of the following:</p>
+                        <ul style="text-align: left; display: inline-block;">
+                            <li>A date range (From/To Date)</li>
+                            <li>A search term (3+ characters)</li>
+                            <li>A specific Business Object Type, ID, or Operation</li>
+                        </ul>
+                        <p><strong>Note:</strong> This prevents processing ${formatNumber(20000)}+ files at once.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            loading.style.display = 'block';
+            container.innerHTML = '';
+
+            const filters = {
+                search: document.getElementById('search').value,
+                boType: document.getElementById('boType').value,
+                boId: document.getElementById('boId').value,
+                operation: document.getElementById('operation').value,
+                direction: document.getElementById('direction').value,
+                hasErrors: document.getElementById('hasErrors').value || null,
+                from: document.getElementById('fromDate').value,
+                to: document.getElementById('toDate').value,
+                minDurationMs: document.getElementById('minDuration').value,
+                maxDurationMs: document.getElementById('maxDuration').value
+            };
+
+            // Remove empty values
+            Object.keys(filters).forEach(key => {
+                if (filters[key] === '' || filters[key] === null) {
+                    delete filters[key];
+                }
+            });
+
             try {
-                const response = await fetch(`/loganalyzer/api/trace/${traceId}`);
-                const timeline = await response.json();
+                console.log('Searching traces with filters:', filters);
+                const response = await axios.get(`${basePath}/loganalyzer/api/traces`, { params: filters });
+                console.log('Traces response:', response.data);
+                currentTraces = response.data;
+                displayTraces(currentTraces);
+            } catch (error) {
+                console.error('Error searching traces:', error);
+                console.error('Error response:', error.response);
 
-                // Update modal header
-                document.getElementById('modalTraceId').textContent = traceId;
-                document.getElementById('modalBusinessObject').textContent =
-                    timeline.boType && timeline.boId ? `${timeline.boType}_${timeline.boId}` : 'N/A';
-                document.getElementById('modalOperation').textContent = timeline.operation || 'N/A';
-                document.getElementById('modalStartTime').textContent = formatDateTime(timeline.startTime);
-                document.getElementById('modalDuration').textContent = Math.round(timeline.duration.totalMilliseconds) + 'ms';
-
-                // Render timeline
-                renderTimeline(timeline.entries);
-
-                // Load file contents
-                const firstEntry = timeline.entries.find(e => e.requestFile || e.responseFile || e.mapFile);
-                if (firstEntry) {
-                    if (firstEntry.requestFile) {
-                        loadFileContent(firstEntry.requestFile, 'requestContent');
-                    }
-                    if (firstEntry.responseFile) {
-                        loadFileContent(firstEntry.responseFile, 'responseContent');
-                    }
-                    if (firstEntry.mapFile) {
-                        loadFileContent(firstEntry.mapFile, 'mapContent');
+                let errorMessage = 'Error loading traces';
+                if (error.response) {
+                    errorMessage += `\n\nStatus: ${error.response.status}`;
+                    if (error.response.data) {
+                        errorMessage += `\nDetails: ${JSON.stringify(error.response.data, null, 2)}`;
                     }
                 }
 
-                // Show modal
-                const modal = new bootstrap.Modal(document.getElementById('traceModal'));
-                modal.show();
+                container.innerHTML = '<div class="no-results"><h3>Error loading traces</h3><pre>' + errorMessage + '</pre></div>';
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        function displayTraces(traces) {
+            const container = document.getElementById('traces-container');
+
+            if (traces.length === 0) {
+                container.innerHTML = `
+                    <div class="no-results">
+                        <h3>No traces found</h3>
+                        <p>Try adjusting your search filters or check if logs are being generated.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = traces.map(trace => `
+                <div class="trace-card" onclick="viewTraceDetails('${trace.traceId}')">
+                    <div class="trace-header">
+                        <div class="trace-id">${trace.traceId}</div>
+                        <div class="trace-duration">${trace.totalDurationMs}ms</div>
+                    </div>
+
+                    <div class="trace-info">
+                        <div class="info-item">
+                            <div class="info-label">Business Object</div>
+                            <div class="info-value">${trace.boType || 'N/A'} ${trace.boId || ''}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Operation</div>
+                            <div class="info-value">${trace.operation || 'Unknown'}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Start Time</div>
+                            <div class="info-value">${new Date(trace.startTime).toLocaleString()}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Status</div>
+                            <div class="info-value">
+                                <span class="status-badge ${trace.hasErrors ? 'status-error' : 'status-success'}">
+                                    ${trace.hasErrors ? 'Has Errors' : 'Success'}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="timing-info">
+                        <div class="timing-grid">
+                            <div class="info-item">
+                                <div class="info-label">Total Steps</div>
+                                <div class="info-value">${trace.totalSteps}</div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">Avg Step Duration</div>
+                                <div class="info-value">${Math.round(trace.avgStepDurationMs)}ms</div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">Duration</div>
+                                <div class="info-value">${trace.totalDurationMs}ms</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function viewTraceDetails(traceId) {
+            const modal = document.getElementById('traceModal');
+            const title = document.getElementById('modalTitle');
+
+            title.textContent = `Trace: ${traceId}`;
+            modal.style.display = 'block';
+
+            // Show timeline tab by default
+            showTab('timeline');
+
+            try {
+                const response = await axios.get(`${basePath}/loganalyzer/api/trace/${encodeURIComponent(traceId)}`);
+                const trace = response.data;
+                displayTimeline(trace);
+
+                // Load Map file content (always available from trace ID)
+                // Try different possible map file paths
+                const possibleMapPaths = [
+                    `Raw/Maps/Map_${traceId}.txt`,
+                    `Raw\\Maps\\Map_${traceId}.txt`,
+                    `Raw/Maps/Map_${traceId}_002.txt`,
+                    `Raw\\Maps\\Map_${traceId}_002.txt`
+                ];
+
+                // Try to load the first available map file
+                for (const mapPath of possibleMapPaths) {
+                    try {
+                        await loadFileContent(mapPath, 'map-content');
+                        break; // If successful, stop trying
+                    } catch (error) {
+                        console.log(`Map file not found at: ${mapPath}`);
+                        continue; // Try next path
+                    }
+                }
             } catch (error) {
                 console.error('Error loading trace details:', error);
-                alert('Error cargando detalles del trace: ' + error.message);
+                document.getElementById('timeline-content').innerHTML = '<p>Error loading trace details</p>';
             }
         }
 
-        function renderTimeline(entries) {
-            const timelineContent = document.getElementById('timelineContent');
-            timelineContent.innerHTML = '';
+        function displayTimeline(trace) {
+            const container = document.getElementById('timeline-content');
 
-            entries.forEach(entry => {
-                const timelineItem = document.createElement('div');
-                timelineItem.className = `timeline-item ${entry.type.toLowerCase()}`;
+            if (trace.entries.length === 0) {
+                container.innerHTML = '<p>No timeline entries found</p>';
+                return;
+            }
 
-                const typeIcon = getTypeIcon(entry.type);
-                const levelClass = `log-level-${entry.level.toLowerCase()}`;
+            console.log('Timeline entries:', trace.entries); // Debug log
 
-                timelineItem.innerHTML = `
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div class="flex-grow-1">
-                            <h6 class="mb-1 ${levelClass}">
-                                ${typeIcon} ${entry.type} - ${entry.level}
-                            </h6>
-                            <p class="mb-1">${entry.message}</p>
-                            <small class="text-muted">
-                                <i class="fas fa-clock me-1"></i>
-                                ${formatDateTime(entry.timestamp)}
-                            </small>
-                            ${entry.boType ? `<br><small class="text-muted"><i class="fas fa-cube me-1"></i>${entry.boType}_${entry.boId || ''}</small>` : ''}
-                            ${entry.operation ? `<br><small class="text-muted"><i class="fas fa-cog me-1"></i>${entry.operation}</small>` : ''}
+            container.innerHTML = trace.entries.map((entry, index) => `
+                <div class="timeline-item ${entry.type.toLowerCase()}">
+                    <div class="timeline-header">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div class="timeline-step">${entry.stepNumber || index + 1}</div>
+                            <div>
+                                <div class="timeline-operation">${entry.operation || 'Unknown'} - ${entry.type}</div>
+                                <div class="timeline-time">${new Date(entry.timestamp).toLocaleString()}</div>
+                            </div>
                         </div>
-                        <div class="ms-3">
-                            ${entry.requestFile ? `<button class="btn btn-sm btn-outline-primary me-1" onclick="loadFileContent('${entry.requestFile}', 'requestContent')">REQ</button>` : ''}
-                            ${entry.responseFile ? `<button class="btn btn-sm btn-outline-success me-1" onclick="loadFileContent('${entry.responseFile}', 'responseContent')">RES</button>` : ''}
-                            ${entry.mapFile ? `<button class="btn btn-sm btn-outline-info me-1" onclick="loadFileContent('${entry.mapFile}', 'mapContent')">MAP</button>` : ''}
+                        <div class="timeline-duration">
+                            ${entry.durationMs !== null && entry.durationMs !== undefined ? `<span>Total: ${entry.durationMs}ms</span>` : ''}
+                            ${entry.relativeDurationMs !== null && entry.relativeDurationMs !== undefined ? `<span>Step: +${entry.relativeDurationMs}ms</span>` : ''}
+                            ${entry.statusCode ? `<span>Status: ${entry.statusCode}</span>` : ''}
+                            ${entry.direction ? `<span>Direction: ${entry.direction}</span>` : ''}
                         </div>
                     </div>
-                `;
-                timelineContent.appendChild(timelineItem);
-            });
+                    <div style="margin-top: 10px; font-size: 0.9rem; color: #6c757d;">
+                        ${entry.message}
+                    </div>
+                    ${entry.requestFile || entry.responseFile ? `
+                        <div style="margin-top: 10px;">
+                            ${entry.requestFile ? `<button class="btn btn-secondary" style="font-size: 0.8rem; padding: 5px 10px; margin-right: 5px;" onclick="loadFileContent('${entry.requestFile.replace(/'/g, "\\'")}', 'request-content'); showTab('request')">View Request</button>` : ''}
+                            ${entry.responseFile ? `<button class="btn btn-secondary" style="font-size: 0.8rem; padding: 5px 10px;" onclick="loadFileContent('${entry.responseFile.replace(/'/g, "\\'")}', 'response-content'); showTab('response')">View Response</button>` : ''}
+                        </div>
+                    ` : ''}
+                    <!-- Debug info -->
+                    <div style="margin-top: 5px; font-size: 0.75rem; color: #999;">
+                        Debug: RequestFile=${entry.requestFile || 'none'}, ResponseFile=${entry.responseFile || 'none'}, Type=${entry.type}
+                    </div>
+                </div>
+            `).join('');
         }
 
-        async function loadFileContent(filePath, targetElementId) {
+        async function loadFileContent(filePath, containerId) {
+            const container = document.getElementById(containerId);
+            if (!container) {
+                console.error('Container not found:', containerId);
+                return;
+            }
+
+            console.log('Loading file:', filePath);
+            container.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading file content...</p></div>';
+
             try {
-                const response = await fetch(`/loganalyzer/api/file/${encodeURIComponent(filePath)}`);
-                const data = await response.json();
-
-                document.getElementById(targetElementId).textContent = data.content;
-
-                // Switch to the appropriate tab
-                if (targetElementId === 'requestContent') {
-                    document.querySelector('[href="#requestTab"]').click();
-                } else if (targetElementId === 'responseContent') {
-                    document.querySelector('[href="#responseTab"]').click();
-                } else if (targetElementId === 'mapContent') {
-                    document.querySelector('[href="#mapTab"]').click();
-                }
+                const response = await axios.get(`${basePath}/loganalyzer/api/file/${encodeURIComponent(filePath)}`);
+                container.textContent = response.data.content;
             } catch (error) {
-                console.error('Error loading file content:', error);
-                document.getElementById(targetElementId).textContent = 'Error cargando el archivo: ' + error.message;
+                console.error('Error loading file:', error);
+                console.error('Error response:', error.response?.data);
+
+                let errorMessage = `Error loading file: ${error.message}`;
+                if (error.response?.data) {
+                    errorMessage += `\n\nDebug info:\n${JSON.stringify(error.response.data, null, 2)}`;
+                }
+                container.textContent = errorMessage;
             }
         }
 
-        function getTypeIcon(type) {
-            switch (type.toLowerCase()) {
-                case 'request': return '<i class="fas fa-arrow-up text-primary"></i>';
-                case 'response': return '<i class="fas fa-arrow-down text-success"></i>';
-                case 'error': return '<i class="fas fa-exclamation-triangle text-danger"></i>';
-                case 'rawlog': return '<i class="fas fa-file-alt text-warning"></i>';
-                case 'authentication': return '<i class="fas fa-key text-purple"></i>';
-                case 'classification': return '<i class="fas fa-tags text-info"></i>';
-                case 'node': return '<i class="fas fa-folder text-secondary"></i>';
-                default: return '<i class="fas fa-info-circle text-muted"></i>';
-            }
-        }
+        function showTab(tabName) {
+            // Hide all tab contents
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
 
-        function formatDateTime(dateString) {
-            const date = new Date(dateString);
-            return date.toLocaleString('es-ES', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit'
+            // Remove active class from all tabs
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+
+            // Show selected tab content
+            document.getElementById(tabName + '-tab').classList.add('active');
+
+            // Add active class to selected tab
+            document.querySelectorAll('.tab').forEach(tab => {
+                if (tab.textContent.trim().toLowerCase() === tabName.toLowerCase()) {
+                    tab.classList.add('active');
+                }
             });
         }
+
+        function closeModal() {
+            document.getElementById('traceModal').style.display = 'none';
+        }
+
+        function clearFilters() {
+            document.getElementById('search').value = '';
+            document.getElementById('boType').value = '';
+            document.getElementById('boId').value = '';
+            document.getElementById('operation').value = '';
+            document.getElementById('direction').value = '';
+            document.getElementById('hasErrors').value = '';
+            document.getElementById('fromDate').value = '';
+            document.getElementById('toDate').value = '';
+            document.getElementById('minDuration').value = '';
+            document.getElementById('maxDuration').value = '';
+
+            searchTraces();
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('traceModal');
+            if (event.target === modal) {
+                closeModal();
+            }
+        }
+
+        // Handle Enter key in search fields
+        document.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                searchTraces();
+            }
+        });
     </script>
 </body>
 </html>

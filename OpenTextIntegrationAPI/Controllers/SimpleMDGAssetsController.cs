@@ -502,7 +502,7 @@ namespace OpenTextIntegrationAPI.Controllers
         [SwaggerResponse(401, "Authentication required")]
         [SwaggerResponse(500, "Internal error")]
         [Produces("application/json")]
-        public async Task<IActionResult> CreateBackgroundImage(IFormFile file, [FromForm] string displayName)
+        public async Task<IActionResult> CreateBackgroundImage(IFormFile file, [FromQuery] string displayName)
         {
             _logger.Log($"CreateBackgroundImage called: displayName={displayName}", LogLevel.INFO);
 
@@ -551,7 +551,7 @@ namespace OpenTextIntegrationAPI.Controllers
                 }
 
                 // 3. Create the new background image
-                _logger.Log($"Creating new background image: {displayName}Error processing request: Document type", LogLevel.DEBUG);
+                _logger.Log($"Creating new background image: {displayName}", LogLevel.DEBUG);
 
                 // Create object for node creation
                 var nodeCreationObject = new

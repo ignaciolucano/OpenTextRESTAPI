@@ -61,6 +61,13 @@ namespace OpenTextIntegrationAPI.Middlewares
             // This will be used to match against the EndpointLogging section in appsettings.json
             //────────────────────────────────────────────────────────────
             string pathKey = ctx.Request.Path.Value ?? "/unknown";
+
+            if (pathKey.Contains("loganalyzer", StringComparison.OrdinalIgnoreCase))
+            {
+                await _next(ctx); // Continue pipeline without logging
+                return;
+            }
+
             string finalKey = pathKey.Trim('/').Replace("/", "_"); // Used for log file naming
 
             //────────────────────────────────────────────────────────────

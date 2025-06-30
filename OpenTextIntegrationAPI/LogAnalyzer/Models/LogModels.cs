@@ -17,6 +17,15 @@ namespace OpenTextIntegrationAPI.LogAnalyzer.Models
 
         [JsonConverter(typeof(JsonStringEnumConverter))]
         public LogEntryType Type { get; set; }
+
+        // New timing properties
+        public int StepNumber { get; set; }
+        public long? DurationMs { get; set; }  // Duration from trace start
+        public long? RelativeDurationMs { get; set; }  // Duration from previous step
+        public int? StatusCode { get; set; }
+        public string? Direction { get; set; }  // inbound/outbound
+        public string? Source { get; set; }  // Browser/Postman/etc
+        public string? ControllerAction { get; set; }
     }
 
     [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -43,6 +52,13 @@ namespace OpenTextIntegrationAPI.LogAnalyzer.Models
         public string? BoId { get; set; }
         public string? Operation { get; set; }
         public bool HasErrors => Entries.Any(e => e.Type == LogEntryType.Error);
+
+        // New timing properties
+        public long TotalDurationMs => (long)Duration.TotalMilliseconds;
+        public int TotalSteps => Entries.Count;
+        public double AvgStepDurationMs => Entries.Any(e => e.DurationMs.HasValue)
+            ? Entries.Where(e => e.DurationMs.HasValue).Average(e => e.DurationMs!.Value)
+            : 0;
     }
 
     public class SearchFilters
@@ -54,5 +70,24 @@ namespace OpenTextIntegrationAPI.LogAnalyzer.Models
         public string? BoId { get; set; }
         public string? Operation { get; set; }
         public bool? HasErrors { get; set; }
+        public long? MinDurationMs { get; set; }  // New timing filters
+        public long? MaxDurationMs { get; set; }
+        public string? Direction { get; set; }  // inbound/outbound filter
+    }
+
+    // New class to represent parsed Map file entries
+    public class MapEntry
+    {
+        public DateTime Timestamp { get; set; }
+        public int StepNumber { get; set; }
+        public string ControllerAction { get; set; } = string.Empty;
+        public string MethodKey { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;  // request/response
+        public int? StatusCode { get; set; }
+        public string Direction { get; set; } = string.Empty;  // inbound/outbound
+        public string Source { get; set; } = string.Empty;
+        public long? DurationMs { get; set; }
+        public long? RelativeDurationMs { get; set; }  // New field for step-to-step timing
+        public string RelativePath { get; set; } = string.Empty;
     }
 }
