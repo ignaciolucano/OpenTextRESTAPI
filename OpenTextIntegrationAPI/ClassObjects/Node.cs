@@ -842,6 +842,8 @@ namespace OpenTextIntegrationAPI.ClassObjects
             _logger.Log("Parsing documents from Business Workspace response JSON (no expDateCatId)", LogLevel.DEBUG);
 
             var docs = new List<DocumentInfoCR>();
+            int filteredCount = 0; // Contador para nodos filtrados
+
             try
             {
                 using (JsonDocument doc = JsonDocument.Parse(json))
@@ -853,10 +855,29 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
                         // Recolectar todas las carpetas primero
                         var folderTasks = new List<Task<List<DocumentInfoCR>>>();
-                        var documentItems = new List<(JsonElement item, string id, string name, string mimeType, long fileSize, string createdAt, string createdBy, string updatedAt, string updatedBy)> ();
+                        var documentItems = new List<(JsonElement item, string id, string name, string mimeType, long fileSize, string createdAt, string createdBy, string updatedAt, string updatedBy)>();
 
                         foreach (var item in results.EnumerateArray())
                         {
+                            // Verificación directa de tipo 854 (Related Business Workspaces)
+                            // Escribimos la condición completa sin variables intermedias para evitar errores
+                            if (item.TryGetProperty("data", out JsonElement itemData) &&
+                                itemData.TryGetProperty("properties", out JsonElement itemProps) &&
+                                itemProps.TryGetProperty("type", out JsonElement typeElem) &&
+                                typeElem.TryGetInt32(out int nodeType) &&
+                                nodeType == 854)
+                            {
+                                // Es un nodo de tipo 854 (Related Business Workspace), lo filtramos
+                                string nodeName = itemProps.TryGetProperty("name", out JsonElement nameElem)
+                                    ? nameElem.GetString() ?? "unknown"
+                                    : "unknown";
+
+                                _logger.Log($"Filtering out Related Business Workspace node: {nodeName} (Type: 854)", LogLevel.DEBUG);
+                                filteredCount++;
+                                continue; // Saltar este nodo
+                            }
+
+                            // A partir de aquí es el código original sin cambios
                             long idInt = 0;
                             string id = "";
                             string? mimeType = null;
@@ -865,14 +886,14 @@ namespace OpenTextIntegrationAPI.ClassObjects
                             // New Fields required by SimpleMDG
                             long fileSize = 0;
                             string createdAt = string.Empty;
-                            string createdBy  = string.Empty;
+                            string createdBy = string.Empty;
                             int intCreatedBy = 0;
                             string updatedAt = string.Empty;
-                            string updatedBy  = string.Empty;
+                            string updatedBy = string.Empty;
                             int intUpdatedBy = 0;
                             int fallbackId = 0;
 
-                            // Extract properties from the item
+                            // Extract properties from the item - No intentamos reutilizar variables
                             if (item.TryGetProperty("data", out JsonElement data) &&
                                 data.TryGetProperty("properties", out JsonElement props))
                             {
@@ -907,11 +928,11 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
                                 // createdBy
                                 intCreatedBy = props.TryGetProperty("create_user_id", out var createdByElem) ? createdByElem.GetInt32()
-                                                                          : fallbackId;
+                                                                              : fallbackId;
 
                                 var memberCreatedBy = await _memberService.GetMemberAsync(intCreatedBy, ticket);
-                                
-                                if ( memberCreatedBy != null)
+
+                                if (memberCreatedBy != null)
                                 {
                                     createdBy = memberCreatedBy.name;
                                 }
@@ -927,7 +948,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
                                 // updatedBy
                                 intUpdatedBy = props.TryGetProperty("modify_user_id", out var updatedByElem) ? updatedByElem.GetInt32()
-                                                                          : fallbackId;
+                                                                              : fallbackId;
 
                                 var memberUpdatedBy = await _memberService.GetMemberAsync(intUpdatedBy, ticket);
 
@@ -953,7 +974,6 @@ namespace OpenTextIntegrationAPI.ClassObjects
                                         fileSize = parsedSize;
                                     }
                                 }
-
                             }
 
                             // Process based on mime_type - guardar documentos para procesar después y lanzar carpetas en paralelo
@@ -1006,14 +1026,11 @@ namespace OpenTextIntegrationAPI.ClassObjects
                             _logger.Log($"Processing document: {name} (NodeId: {id})", LogLevel.DEBUG);
 
                             // Get document classification
-
                             if (!int.TryParse(id, out var nodeId))
                                 throw new ArgumentException($"nodeId must be numeric.  Value = '{id}'");
 
                             var DocTypeRule = await _csUtilities.GetClassificationInfoAsync(nodeId, ticket);
-                            //string? docType = info?.Name;           // si solo querés el nombre
 
-                            //string? DocTypeRule = await _csUtilities.GetClassificationInfoAsync(id, ticket);
                             string documentType;
                             string documentTypeId;
 
@@ -1044,10 +1061,15 @@ namespace OpenTextIntegrationAPI.ClassObjects
                                 createdBy = createdBy,
                                 updatedAt = updatedAt,
                                 updatedBy = updatedBy
-
-    });
+                            });
 
                             _logger.Log($"Added document: {name} with type: {documentType}", LogLevel.DEBUG);
+                        }
+
+                        // Registrar cuántos nodos se filtraron
+                        if (filteredCount > 0)
+                        {
+                            _logger.Log($"Filtered {filteredCount} Related Business Workspace nodes (type 854) from results", LogLevel.INFO);
                         }
                     }
                 }
@@ -1067,6 +1089,8 @@ namespace OpenTextIntegrationAPI.ClassObjects
             _logger.Log("Parsing documents from Business Workspace response JSON (no expDateCatId)", LogLevel.DEBUG);
 
             var docs = new List<DocumentInfo>();
+            int filteredCount = 0; // Contador para nodos filtrados
+
             try
             {
                 using (JsonDocument doc = JsonDocument.Parse(json))
@@ -1082,6 +1106,13 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
                         foreach (var item in results.EnumerateArray())
                         {
+                            // Filtrar nodos de tipo 854 (Related Business Workspaces)
+                            if (IsRelatedWorkspace(item))
+                            {
+                                filteredCount++;
+                                continue; // Saltar este nodo
+                            }
+
                             long idInt = 0;
                             string id = "";
                             string? mimeType = null;
@@ -1179,8 +1210,6 @@ namespace OpenTextIntegrationAPI.ClassObjects
                                 }
                             }
 
-
-
                             // Process based on mime_type - guardar documentos para procesar después y lanzar carpetas en paralelo
                             if (string.IsNullOrEmpty(mimeType))
                             {
@@ -1261,6 +1290,12 @@ namespace OpenTextIntegrationAPI.ClassObjects
                             });
 
                             _logger.Log($"Added document: {name} with type: {documentType}", LogLevel.DEBUG);
+                        }
+
+                        // Registrar cuántos nodos se filtraron
+                        if (filteredCount > 0)
+                        {
+                            _logger.Log($"Filtered {filteredCount} Related Business Workspace nodes (type 854) from results", LogLevel.INFO);
                         }
                     }
                 }
@@ -1705,6 +1740,31 @@ namespace OpenTextIntegrationAPI.ClassObjects
                 throw new ArgumentException("Create folder operation failed.", nameof(ticket));
             }
         }
+
+        private bool IsRelatedWorkspace(JsonElement itemElement)
+        {
+            // Verifica si el nodo es de tipo 854 (Related Business Workspace)
+            if (itemElement.TryGetProperty("data", out JsonElement data) &&
+                data.TryGetProperty("properties", out JsonElement props) &&
+                props.TryGetProperty("type", out JsonElement typeElem))
+            {
+                int nodeType = typeElem.GetInt32();
+
+                if (nodeType == 854)
+                {
+                    // Opcional: registra que estamos omitiendo un nodo de tipo 854
+                    string nodeName = props.TryGetProperty("name", out JsonElement nameElem)
+                        ? nameElem.GetString() ?? "unknown"
+                        : "unknown";
+
+                    _logger.Log($"Skipping Related Business Workspace node: {nodeName} (Type: 854)", LogLevel.DEBUG);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         /// <summary>
         /// Creates a new folder for SimpleMDG assets in OpenText Content Server.
         /// </summary>

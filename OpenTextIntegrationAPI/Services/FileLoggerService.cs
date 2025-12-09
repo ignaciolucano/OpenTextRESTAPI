@@ -364,11 +364,49 @@ public class FileLoggerService : ILogService
 
         if (info.Length < maxBytes) return;
 
-        var old = path + ".old";
+        // Get the directory and base filename
+        var directory = Path.GetDirectoryName(path);
+        var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(path);
+        var extension = Path.GetExtension(path);
 
-        if (File.Exists(old)) File.Delete(old);
+        // Find the next available number
+        int nextNumber = 1;
+        string rotatedPath;
 
-        File.Move(path, old);
+        do
+        {
+            rotatedPath = Path.Combine(directory, $"{fileNameWithoutExtension}_{nextNumber:D2}{extension}");
+            nextNumber++;
+        }
+        while (File.Exists(rotatedPath) && nextNumber <= 999); // Prevent infinite loop
+
+        try
+        {
+            // Move current file to the numbered backup
+            File.Move(path, rotatedPath);
+        }
+        catch (Exception ex)
+        {
+            // If rotation fails, try the old method as fallback
+            var fallbackPath = path + ".old";
+            try
+            {
+                if (File.Exists(fallbackPath)) File.Delete(fallbackPath);
+                File.Move(path, fallbackPath);
+            }
+            catch
+            {
+                // If even fallback fails, just delete the current file to prevent disk space issues
+                try
+                {
+                    File.Delete(path);
+                }
+                catch
+                {
+                    // Last resort - log the error but continue
+                }
+            }
+        }
     }
 
     private string GetTraceId()

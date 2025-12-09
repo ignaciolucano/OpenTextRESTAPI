@@ -42,6 +42,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
         /// <summary>
         /// Retrieves master data documents associated with a specific business object.
+        /// If boType is BUS1001006 and no workspace is found, attempts fallback to BUS1001001.
         /// </summary>
         /// <param name="boType">Business Object type</param>
         /// <param name="boId">Business Object ID</param>
@@ -66,6 +67,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
 
             string? workspaceNodeId = null;
             string? workspaceName = null;
+            string actualBoType = boType; // Track which boType was actually used
 
             // Process search results if workspace found
             if (wsResponse != null && wsResponse.results.Count > 0)
@@ -76,7 +78,43 @@ namespace OpenTextIntegrationAPI.ClassObjects
                 workspaceName = first.name;
 
                 _logger.Log($"Business workspace found: {workspaceName} with nodeId: {workspaceNodeId}", LogLevel.INFO);
+            }
+            else
+            {
+                // If no workspace found and boType is BUS1001006, try fallback to BUS1001001
+                if (boType.Equals("BUS1001006", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.Log("No Business Workspace found for BUS1001006, attempting fallback to BUS1001001", LogLevel.INFO);
 
+                    string fallbackBoType = "BUS1001001";
+                    wsResponse = await SearchBusinessWorkspaceAsync(fallbackBoType, boId, ticket);
+
+                    if (wsResponse != null && wsResponse.results.Count > 0)
+                    {
+                        // Extract workspace properties from fallback response
+                        var first = wsResponse.results[0].data.properties;
+                        workspaceNodeId = first.id.ToString();
+                        workspaceName = first.name;
+                        actualBoType = fallbackBoType; // Update to reflect the fallback type used
+
+                        _logger.Log($"Fallback successful - Business workspace found: {workspaceName} with nodeId: {workspaceNodeId}", LogLevel.INFO);
+                    }
+                    else
+                    {
+                        _logger.Log("No Business Workspace found for fallback BUS1001001 either", LogLevel.WARNING);
+                        return null;
+                    }
+                }
+                else
+                {
+                    _logger.Log("No Business Workspace found", LogLevel.WARNING);
+                    return null;
+                }
+            }
+
+            // If we have a workspace, get the documents
+            if (!string.IsNullOrEmpty(workspaceNodeId))
+            {
                 // Get expiration date category ID for document filtering
                 _logger.Log("Retrieving expiration date category ID", LogLevel.TRACE);
                 var expDateCatId = await _csUtilities.GetExpirationDateCatIdAsync(ticket);
@@ -92,7 +130,7 @@ namespace OpenTextIntegrationAPI.ClassObjects
                 {
                     Header = new MasterDataDocumentsHeader
                     {
-                        BoType = boType,
+                        BoType = actualBoType, // Use the actual boType that was successful
                         BoId = boId,
                         BwName = workspaceName,
                         docCount = documents.Count.ToString()
@@ -100,11 +138,8 @@ namespace OpenTextIntegrationAPI.ClassObjects
                     Files = documents
                 };
             }
-            else
-            {
-                _logger.Log("No Business Workspace found", LogLevel.WARNING);
-                return null;
-            }
+
+            return null;
         }
 
         /// <summary>
